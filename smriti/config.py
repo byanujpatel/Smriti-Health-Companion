@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     smriti_vision_backend: VisionBackend = "groq"
     smriti_stt_backend: STTBackend = "groq"
     supermemory_base_url: str | None = "http://localhost:6767"
-    supermemory_api_key: str
+    supermemory_api_key: str = ""
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_stt_model: str = "whisper-large-v3-turbo"
