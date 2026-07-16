@@ -70,7 +70,7 @@ class DocumentExtractor:
             )
 
         if not self._vision:
-            raise DocumentIngestionError("Photo extraction needs Groq Vision.")
+            raise DocumentIngestionError("Photo extraction needs a vision provider.")
         text = self._extract_image_text(content, content_type, filename)
         return ExtractedDocument(
             text=text,

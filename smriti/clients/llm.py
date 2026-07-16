@@ -1,7 +1,9 @@
 import json
 from datetime import datetime
 from typing import BinaryIO
+from urllib.parse import urljoin
 
+import httpx
 from groq import Groq
 from pydantic import ValidationError
 
@@ -34,7 +36,43 @@ class _GroqClient:
         return json.loads(completion.choices[0].message.content or "{}")
 
 
-class GroqStructurer(_GroqClient):
+class _OllamaClient:
+    backend = "ollama"
+
+    def __init__(self, settings: Settings):
+        self._http = httpx.Client(
+            base_url=settings.ollama_base_url.rstrip("/"),
+            timeout=120,
+        )
+        self._text_model = settings.ollama_text_model
+        self._vision_model = settings.ollama_vision_model
+
+    def _chat(self, model: str, messages: list[dict], *, json_mode: bool = False) -> str:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        if json_mode:
+            payload["format"] = "json"
+        response = self._http.post("/api/chat", json=payload)
+        response.raise_for_status()
+        return (response.json().get("message", {}).get("content") or "").strip()
+
+    def _json_completion(self, system: str, user: str) -> dict:
+        content = self._chat(
+            self._text_model,
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            json_mode=True,
+        )
+        return json.loads(content or "{}")
+
+
+class _StructurerMixin:
     def structure(
         self, raw: str, persona: Persona, now: datetime
     ) -> list[MemoryEntry]:
@@ -91,7 +129,15 @@ or an empty object {{}}. Never return an array for `entities`."""
         return validated
 
 
-class GroqAnswerer(_GroqClient):
+class GroqStructurer(_StructurerMixin, _GroqClient):
+    pass
+
+
+class OllamaStructurer(_StructurerMixin, _OllamaClient):
+    pass
+
+
+class _AnswererMixin:
     def answer(
         self, question: str, persona: Persona, memories: list[MemoryEntry]
     ) -> str:
@@ -106,9 +152,8 @@ Answer only from the supplied memories. Cite every factual claim using the
 memory date in [YYYY-MM-DD] form. If the records do not answer the question,
 say exactly: I don't have a record of that. Prefer later entries when records
 conflict."""
-        completion = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
+        return self._plain_completion(
+            [
                 {"role": "system", "content": system},
                 {
                     "role": "user",
@@ -127,12 +172,25 @@ conflict."""
                     ),
                 },
             ],
+        )
+
+
+class GroqAnswerer(_AnswererMixin, _GroqClient):
+    def _plain_completion(self, messages: list[dict]) -> str:
+        completion = self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,
             temperature=0,
         )
         return completion.choices[0].message.content or "I don't have a record of that."
 
 
-class GroqSummarizer(_GroqClient):
+class OllamaAnswerer(_AnswererMixin, _OllamaClient):
+    def _plain_completion(self, messages: list[dict]) -> str:
+        return self._chat(self._text_model, messages) or "I don't have a record of that."
+
+
+class _SummarizerMixin:
     def summarize(
         self,
         persona: Persona,
@@ -150,9 +208,8 @@ Create a doctor-visit preparation summary only from supplied records.
 Do not diagnose, interpret values as good/bad, recommend medicines, recommend
 doses, or make urgency judgments. Say "No recorded items" for empty sections.
 Questions must be phrased as questions to ask the doctor, not advice."""
-        completion = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
+        return self._plain_completion(
+            [
                 {"role": "system", "content": system},
                 {
                     "role": "user",
@@ -180,9 +237,22 @@ Questions must be phrased as questions to ask the doctor, not advice."""
                     ),
                 },
             ],
+        )
+
+
+class GroqSummarizer(_SummarizerMixin, _GroqClient):
+    def _plain_completion(self, messages: list[dict]) -> str:
+        completion = self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,
             temperature=0,
         )
         return completion.choices[0].message.content or "No recorded items."
+
+
+class OllamaSummarizer(_SummarizerMixin, _OllamaClient):
+    def _plain_completion(self, messages: list[dict]) -> str:
+        return self._chat(self._text_model, messages) or "No recorded items."
 
 
 class GroqTranscriber(_GroqClient):
@@ -203,6 +273,36 @@ class GroqTranscriber(_GroqClient):
         )
         text = getattr(transcription, "text", None)
         return (text or "").strip()
+
+
+class ParakeetTranscriber:
+    backend = "parakeet"
+
+    def __init__(self, settings: Settings):
+        self._http = httpx.Client(timeout=120)
+        self._url = urljoin(
+            settings.parakeet_base_url.rstrip("/") + "/",
+            settings.parakeet_transcribe_path.lstrip("/"),
+        )
+        self._model = settings.parakeet_stt_model
+
+    def transcribe(self, audio: BinaryIO, filename: str, content_type: str) -> str:
+        response = self._http.post(
+            self._url,
+            data={"model": self._model},
+            files={"file": (filename, audio, content_type)},
+        )
+        response.raise_for_status()
+        content_type_header = response.headers.get("content-type", "")
+        if "application/json" in content_type_header:
+            payload = response.json()
+            return str(
+                payload.get("text")
+                or payload.get("transcript")
+                or payload.get("transcription")
+                or ""
+            ).strip()
+        return response.text.strip()
 
 
 class GroqVisionExtractor(_GroqClient):
@@ -243,6 +343,37 @@ class GroqVisionExtractor(_GroqClient):
         return (completion.choices[0].message.content or "").strip()
 
 
+class OllamaVisionExtractor(_OllamaClient):
+    def extract(self, data_url: str, filename: str) -> str:
+        image = _base64_from_data_url(data_url)
+        return self._chat(
+            self._vision_model,
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{SAFETY_RULES}\n"
+                        "Extract visible text from medical reports, prescriptions, lab reports, "
+                        "and medicine labels. Preserve medicine names, doses, frequencies, dates, "
+                        "doctor instructions, and lab values. If the image is blurry or unreadable, "
+                        "say exactly: UNREADABLE."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Extract text from this medical document image: {filename}",
+                    "images": [image],
+                },
+            ],
+        )
+
+
+def _base64_from_data_url(data_url: str) -> str:
+    if "," not in data_url:
+        return data_url
+    return data_url.split(",", 1)[1]
+
+
 def _unsupported_backend(kind: str, backend: str) -> NotImplementedError:
     return NotImplementedError(
         f"{kind} backend '{backend}' is configured but not implemented yet. "
@@ -253,28 +384,38 @@ def _unsupported_backend(kind: str, backend: str) -> NotImplementedError:
 def create_structurer(settings: Settings):
     if settings.llm_backend == "groq":
         return GroqStructurer(settings)
+    if settings.llm_backend == "ollama":
+        return OllamaStructurer(settings)
     raise _unsupported_backend("LLM", settings.llm_backend)
 
 
 def create_answerer(settings: Settings):
     if settings.llm_backend == "groq":
         return GroqAnswerer(settings)
+    if settings.llm_backend == "ollama":
+        return OllamaAnswerer(settings)
     raise _unsupported_backend("LLM", settings.llm_backend)
 
 
 def create_summarizer(settings: Settings):
     if settings.llm_backend == "groq":
         return GroqSummarizer(settings)
+    if settings.llm_backend == "ollama":
+        return OllamaSummarizer(settings)
     raise _unsupported_backend("LLM", settings.llm_backend)
 
 
 def create_transcriber(settings: Settings):
     if settings.stt_backend == "groq":
         return GroqTranscriber(settings)
+    if settings.stt_backend == "parakeet":
+        return ParakeetTranscriber(settings)
     raise _unsupported_backend("STT", settings.stt_backend)
 
 
 def create_vision_extractor(settings: Settings):
     if settings.vision_backend == "groq":
         return GroqVisionExtractor(settings)
+    if settings.vision_backend == "ollama":
+        return OllamaVisionExtractor(settings)
     raise _unsupported_backend("Vision", settings.vision_backend)

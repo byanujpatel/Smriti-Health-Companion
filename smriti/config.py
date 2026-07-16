@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     smriti_stt_backend: STTBackend = "groq"
     supermemory_base_url: str | None = "http://localhost:6767"
     supermemory_api_key: str
-    groq_api_key: str
+    groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_stt_model: str = "whisper-large-v3-turbo"
     groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ollama_text_model: str = "llama3.2"
     ollama_vision_model: str = "llava"
     parakeet_base_url: str = "http://localhost:8765"
+    parakeet_transcribe_path: str = "/transcribe"
     parakeet_stt_model: str = "parakeet-tdt-0.6b-v2"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

@@ -100,7 +100,6 @@ def create_app(
     @app.get("/status", response_model=StatusResponse)
     def app_status() -> StatusResponse:
         supermemory_ok, detail = memory.status()
-        groq_ok = bool(settings.groq_api_key and settings.groq_model) if settings else True
         memory_mode = getattr(memory, "mode", getattr(settings, "memory_mode", "test"))
         memory_target = getattr(
             memory,
@@ -121,6 +120,12 @@ def create_app(
             transcriber,
             "backend",
             getattr(settings, "stt_backend", "test"),
+        )
+        groq_needed = "groq" in {llm_backend, vision_backend, stt_backend}
+        groq_ok = (
+            bool(settings.groq_api_key and settings.groq_model)
+            if settings and groq_needed
+            else True
         )
         return StatusResponse(
             api="ok",
@@ -472,9 +477,10 @@ def create_app(
                 audio.content_type,
             )
         except Exception as error:
+            backend = getattr(transcriber, "backend", "STT provider")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Groq STT rejected the recording. Check GROQ_API_KEY and GROQ_STT_MODEL.",
+                detail=f"{backend} STT rejected the recording. Check your STT provider configuration.",
             ) from error
         if not text:
             raise HTTPException(
