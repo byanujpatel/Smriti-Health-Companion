@@ -1,4 +1,4 @@
-# Smriti
+# Smriti Health Companion
 
 Local-first health memory companion. Phase 1 supports typed health logs,
 editable previews, confirmed saving to Supermemory Local, and dated recall.
@@ -16,6 +16,8 @@ signals, duplicate skipping, and one-click demo data.
 Phase 9 splits the frontend into a deployable React static app served by
 FastAPI, with a public-ready responsive UI. Phase 10 adds local/cloud
 Supermemory modes, deployment checks, and report/prescription upload previews.
+Phase 12 adds person-scoped household memory with Papa, Mummy, and Myself
+subject metadata.
 
 ## Run
 
@@ -40,7 +42,7 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 
 ## Test Flow
 
-1. Select `Care` or `Self` in the left sidebar.
+1. Select `Papa`, `Mummy`, or `Myself` in the left sidebar.
 2. Add a log, for example: `Doctor said Papa should reduce salt from today.`
 2. Click `Preview`.
 3. Edit the card if needed, then click `Save selected`.
@@ -52,7 +54,7 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 ## Frontend Features
 
 - Real React frontend lives in `frontend/` and is served by FastAPI.
-- `Care` / `Self` sidebar persona switch.
+- `Papa` / `Mummy` / `Myself` person picker.
 - Add memory with better date-time input.
 - Preview cards with editable text, type, and occurred-at date.
 - Confirmed save only after preview.
@@ -69,6 +71,8 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 - Voice recording for Health Log input using Groq STT. Transcript fills the text
   box, then the normal preview and confirm flow continues.
 - One-click demo mode loads sample care memories and prefilled retrieval checks.
+- Person-scoped memories store `subject_id` and `subject_name`; old Care
+  memories default to Papa so existing local data still appears.
 
 ## Code Layout
 
@@ -94,7 +98,8 @@ need separate frontend hosting because FastAPI serves `frontend/` at `/`.
 Required runtime services:
 
 - Supermemory Local or Supermemory Cloud.
-- Groq API key and model credentials.
+- Groq API key and model credentials for text, voice STT, and report/photo
+  vision.
 
 Required environment:
 
@@ -123,6 +128,10 @@ In cloud mode you usually do not need `SUPERMEMORY_BASE_URL`; the SDK uses
 Supermemory Cloud by default. If an old localhost `SUPERMEMORY_BASE_URL` is
 still present, Smriti ignores it in cloud mode. Keep `SUPERMEMORY_BASE_URL` only
 if Supermemory gives you a custom hosted endpoint.
+
+Local mode means only the memory database runs locally. Groq is still used for
+text structuring, voice transcription, answers, summaries, and report/photo
+vision.
 
 Render environment variables:
 
@@ -156,6 +165,19 @@ Deploy checklist:
 After switching modes, open the app status card and click `Test memory`. It
 runs a safe save → search → delete check against the selected memory target, so
 you can verify local or cloud mode before trusting a deployment.
+
+Quick local smoke test:
+
+```bash
+supermemory-server
+```
+
+```bash
+UV_CACHE_DIR=/private/tmp/uv-cache uv run uvicorn main:app --reload --port 8000
+```
+
+Open `http://127.0.0.1:8000`, click `Refresh`, then `Test memory`. Add a Papa
+memory, save it, switch to Mummy, and confirm Papa's memory does not appear.
 
 Report and prescription uploads:
 
