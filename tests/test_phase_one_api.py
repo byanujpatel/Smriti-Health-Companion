@@ -557,6 +557,10 @@ def test_status_reports_dependencies():
     assert response.json()["supermemory"] == "ok"
     assert response.json()["memory_mode"] == "test"
     assert response.json()["memory_target"] == "test"
+    assert response.json()["llm_backend"] == "test"
+    assert response.json()["vision_backend"] == "test"
+    assert response.json()["stt_backend"] == "test"
+    assert response.json()["fully_local"] is False
 
 
 def test_cloud_mode_ignores_localhost_base_url():
@@ -568,6 +572,28 @@ def test_cloud_mode_ignores_localhost_base_url():
     )
 
     assert settings.effective_supermemory_base_url is None
+
+
+def test_fully_local_requires_all_local_providers():
+    hybrid = Settings(
+        smriti_memory_mode="local",
+        smriti_llm_backend="groq",
+        smriti_vision_backend="groq",
+        smriti_stt_backend="groq",
+        supermemory_api_key="sm_test",
+        groq_api_key="gsk_test",
+    )
+    local = Settings(
+        smriti_memory_mode="local",
+        smriti_llm_backend="ollama",
+        smriti_vision_backend="ollama",
+        smriti_stt_backend="parakeet",
+        supermemory_api_key="sm_test",
+        groq_api_key="gsk_test",
+    )
+
+    assert hybrid.fully_local is False
+    assert local.fully_local is True
 
 
 def test_memory_check_saves_searches_and_cleans_up():

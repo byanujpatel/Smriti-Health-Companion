@@ -249,3 +249,7 @@ class SupermemoryClient:
         if isinstance(result, dict):
             return result
         return result.model_dump()
+
+
+def create_memory_provider(settings: Settings) -> SupermemoryClient:
+    return SupermemoryClient(settings)

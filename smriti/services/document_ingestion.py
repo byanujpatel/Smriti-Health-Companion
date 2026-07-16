@@ -37,6 +37,10 @@ class DocumentExtractor:
     def __init__(self, vision_extractor=None):
         self._vision = vision_extractor
 
+    @property
+    def vision_backend(self):
+        return self._vision
+
     def extract(
         self,
         *,

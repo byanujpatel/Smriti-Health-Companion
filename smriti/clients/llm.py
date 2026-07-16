@@ -15,6 +15,8 @@ or make urgency judgments. Only structure, recall, and summarize recorded facts.
 
 
 class _GroqClient:
+    backend = "groq"
+
     def __init__(self, settings: Settings):
         self._client = Groq(api_key=settings.groq_api_key)
         self._model = settings.groq_model
@@ -239,3 +241,40 @@ class GroqVisionExtractor(_GroqClient):
             temperature=0,
         )
         return (completion.choices[0].message.content or "").strip()
+
+
+def _unsupported_backend(kind: str, backend: str) -> NotImplementedError:
+    return NotImplementedError(
+        f"{kind} backend '{backend}' is configured but not implemented yet. "
+        "Use Groq for Phase 11A, then add the local provider in Phase 11B."
+    )
+
+
+def create_structurer(settings: Settings):
+    if settings.llm_backend == "groq":
+        return GroqStructurer(settings)
+    raise _unsupported_backend("LLM", settings.llm_backend)
+
+
+def create_answerer(settings: Settings):
+    if settings.llm_backend == "groq":
+        return GroqAnswerer(settings)
+    raise _unsupported_backend("LLM", settings.llm_backend)
+
+
+def create_summarizer(settings: Settings):
+    if settings.llm_backend == "groq":
+        return GroqSummarizer(settings)
+    raise _unsupported_backend("LLM", settings.llm_backend)
+
+
+def create_transcriber(settings: Settings):
+    if settings.stt_backend == "groq":
+        return GroqTranscriber(settings)
+    raise _unsupported_backend("STT", settings.stt_backend)
+
+
+def create_vision_extractor(settings: Settings):
+    if settings.vision_backend == "groq":
+        return GroqVisionExtractor(settings)
+    raise _unsupported_backend("Vision", settings.vision_backend)

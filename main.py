@@ -9,13 +9,13 @@ from pathlib import Path
 from supermemory import APIConnectionError, APIStatusError
 
 from smriti.clients.llm import (
-    GroqAnswerer,
-    GroqStructurer,
-    GroqSummarizer,
-    GroqTranscriber,
-    GroqVisionExtractor,
+    create_answerer,
+    create_structurer,
+    create_summarizer,
+    create_transcriber,
+    create_vision_extractor,
 )
-from smriti.clients.memory import SupermemoryClient
+from smriti.clients.memory import create_memory_provider
 from smriti.config import get_settings
 from smriti.models import (
     AskRequest,
@@ -38,6 +38,13 @@ from smriti.models import (
     MemoryUpdate,
     Persona,
 )
+from smriti.providers import (
+    AnswerProvider,
+    MemoryProvider,
+    STTProvider,
+    StructurerProvider,
+    SummaryProvider,
+)
 from smriti.retrieval import expected_terms_match
 from smriti.services.demo_data import demo_eval_questions, demo_memories
 from smriti.services.document_ingestion import DocumentExtractor, DocumentIngestionError
@@ -50,11 +57,11 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 def create_app(
     *,
-    structurer=None,
-    memory=None,
-    answerer=None,
-    summarizer=None,
-    transcriber=None,
+    structurer: StructurerProvider | None = None,
+    memory: MemoryProvider | None = None,
+    answerer: AnswerProvider | None = None,
+    summarizer: SummaryProvider | None = None,
+    transcriber: STTProvider | None = None,
     document_extractor=None,
 ) -> FastAPI:
     app = FastAPI(title="Smriti API", version="0.1.0")
@@ -77,13 +84,13 @@ def create_app(
 
     if needs_settings:
         settings = get_settings()
-        structurer = structurer or GroqStructurer(settings)
-        memory = memory or SupermemoryClient(settings)
-        answerer = answerer or GroqAnswerer(settings)
-        summarizer = summarizer or GroqSummarizer(settings)
-        transcriber = transcriber or GroqTranscriber(settings)
+        structurer = structurer or create_structurer(settings)
+        memory = memory or create_memory_provider(settings)
+        answerer = answerer or create_answerer(settings)
+        summarizer = summarizer or create_summarizer(settings)
+        transcriber = transcriber or create_transcriber(settings)
         document_extractor = document_extractor or DocumentExtractor(
-            GroqVisionExtractor(settings)
+            create_vision_extractor(settings)
         )
 
     @app.get("/health")
@@ -100,12 +107,31 @@ def create_app(
             "target",
             getattr(settings, "effective_supermemory_base_url", "test"),
         )
+        llm_backend = getattr(
+            structurer,
+            "backend",
+            getattr(settings, "llm_backend", "test"),
+        )
+        vision_backend = getattr(
+            getattr(document_extractor, "vision_backend", None),
+            "backend",
+            getattr(settings, "vision_backend", "test"),
+        )
+        stt_backend = getattr(
+            transcriber,
+            "backend",
+            getattr(settings, "stt_backend", "test"),
+        )
         return StatusResponse(
             api="ok",
             supermemory="ok" if supermemory_ok else "error",
             groq="configured" if groq_ok else "missing",
             memory_mode=memory_mode,
             memory_target=memory_target or "Supermemory Cloud",
+            llm_backend=llm_backend,
+            vision_backend=vision_backend,
+            stt_backend=stt_backend,
+            fully_local=getattr(settings, "fully_local", False) if settings else False,
             detail=detail,
         )
 
