@@ -265,7 +265,7 @@ class StatusResponse(BaseModel):
     llm_backend: str = "groq"
     vision_backend: str = "groq"
     stt_backend: str = "groq"
-    fully_local: bool = False
+    local_memory_and_models: bool = False
     detail: str | None = None
 
 

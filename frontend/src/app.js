@@ -368,7 +368,7 @@ function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, 
     ? `AI ${status.llm_backend || "?"}/${status.vision_backend || "?"}/${status.stt_backend || "?"}`
     : "AI checking";
   const label = statusOk
-    ? `Ready${mode} · ${aiLabel}${status?.fully_local ? " · zero external AI" : ""}`
+    ? `Ready${mode} · ${aiLabel}${status?.local_memory_and_models ? " · local memory + models" : ""}`
     : status
       ? `API ${status.api} | Memory ${status.supermemory}${mode} | ${aiLabel}`
       : "Checking";

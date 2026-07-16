@@ -1,4 +1,3 @@
-import io
 import json
 from datetime import datetime
 
@@ -7,7 +6,6 @@ import httpx
 from smriti.clients.llm import (
     OllamaStructurer,
     OllamaVisionExtractor,
-    ParakeetTranscriber,
     create_answerer,
     create_structurer,
     create_summarizer,
@@ -23,21 +21,22 @@ def local_settings() -> Settings:
         smriti_memory_mode="local",
         smriti_llm_backend="ollama",
         smriti_vision_backend="ollama",
-        smriti_stt_backend="parakeet",
+        smriti_stt_backend="groq",
         supermemory_api_key="sm_test",
+        groq_api_key="gsk_test",
         ollama_text_model="qwen2.5:7b",
         ollama_vision_model="llama3.2-vision:11b",
     )
 
 
-def test_local_provider_factories_select_ollama_and_parakeet():
+def test_local_provider_factories_select_ollama_and_groq_stt():
     settings = local_settings()
 
     assert create_structurer(settings).backend == "ollama"
     assert create_answerer(settings).backend == "ollama"
     assert create_summarizer(settings).backend == "ollama"
     assert create_vision_extractor(settings).backend == "ollama"
-    assert create_transcriber(settings).backend == "parakeet"
+    assert create_transcriber(settings).backend == "groq"
 
 
 def test_ollama_structurer_uses_json_chat_payload():
@@ -103,22 +102,3 @@ def test_ollama_vision_sends_base64_image_payload():
     assert text == "Metformin 500 mg"
     assert requests[0]["model"] == "llama3.2-vision:11b"
     assert requests[0]["messages"][1]["images"] == ["abc123"]
-
-
-def test_parakeet_transcriber_accepts_json_text_response():
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/transcribe"
-        content_type = request.headers["content-type"]
-        assert "multipart/form-data" in content_type
-        return httpx.Response(200, json={"text": "Papa took medicine."})
-
-    transcriber = ParakeetTranscriber(local_settings())
-    transcriber._http = httpx.Client(transport=httpx.MockTransport(handler))
-
-    text = transcriber.transcribe(
-        audio=io.BytesIO(b"audio"),
-        filename="note.webm",
-        content_type="audio/webm",
-    )
-
-    assert text == "Papa took medicine."

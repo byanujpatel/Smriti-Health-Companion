@@ -1,7 +1,6 @@
 import json
 from datetime import datetime
 from typing import BinaryIO
-from urllib.parse import urljoin
 
 import httpx
 from groq import Groq
@@ -275,36 +274,6 @@ class GroqTranscriber(_GroqClient):
         return (text or "").strip()
 
 
-class ParakeetTranscriber:
-    backend = "parakeet"
-
-    def __init__(self, settings: Settings):
-        self._http = httpx.Client(timeout=120)
-        self._url = urljoin(
-            settings.parakeet_base_url.rstrip("/") + "/",
-            settings.parakeet_transcribe_path.lstrip("/"),
-        )
-        self._model = settings.parakeet_stt_model
-
-    def transcribe(self, audio: BinaryIO, filename: str, content_type: str) -> str:
-        response = self._http.post(
-            self._url,
-            data={"model": self._model},
-            files={"file": (filename, audio, content_type)},
-        )
-        response.raise_for_status()
-        content_type_header = response.headers.get("content-type", "")
-        if "application/json" in content_type_header:
-            payload = response.json()
-            return str(
-                payload.get("text")
-                or payload.get("transcript")
-                or payload.get("transcription")
-                or ""
-            ).strip()
-        return response.text.strip()
-
-
 class GroqVisionExtractor(_GroqClient):
     def __init__(self, settings: Settings):
         super().__init__(settings)
@@ -408,8 +377,6 @@ def create_summarizer(settings: Settings):
 def create_transcriber(settings: Settings):
     if settings.stt_backend == "groq":
         return GroqTranscriber(settings)
-    if settings.stt_backend == "parakeet":
-        return ParakeetTranscriber(settings)
     raise _unsupported_backend("STT", settings.stt_backend)
 
 

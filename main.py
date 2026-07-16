@@ -136,7 +136,11 @@ def create_app(
             llm_backend=llm_backend,
             vision_backend=vision_backend,
             stt_backend=stt_backend,
-            fully_local=getattr(settings, "fully_local", False) if settings else False,
+            local_memory_and_models=(
+                getattr(settings, "local_memory_and_models", False)
+                if settings
+                else False
+            ),
             detail=detail,
         )
 

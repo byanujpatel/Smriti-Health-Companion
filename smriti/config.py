@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MemoryMode = Literal["local", "cloud"]
 LLMBackend = Literal["groq", "ollama"]
 VisionBackend = Literal["groq", "ollama"]
-STTBackend = Literal["groq", "parakeet"]
+STTBackend = Literal["groq"]
 LOCAL_SUPERMEMORY_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 
 
@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     smriti_memory_mode: MemoryMode = "local"
     smriti_llm_backend: LLMBackend = "groq"
     smriti_vision_backend: VisionBackend = "groq"
-    smriti_stt_backend: STTBackend = "groq"
+    smriti_stt_backend: str = "groq"
     supermemory_base_url: str | None = "http://localhost:6767"
     supermemory_api_key: str = ""
     groq_api_key: str = ""
@@ -24,9 +24,6 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_text_model: str = "llama3.2"
     ollama_vision_model: str = "llava"
-    parakeet_base_url: str = "http://localhost:8765"
-    parakeet_transcribe_path: str = "/transcribe"
-    parakeet_stt_model: str = "parakeet-tdt-0.6b-v2"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -44,15 +41,14 @@ class Settings(BaseSettings):
 
     @property
     def stt_backend(self) -> STTBackend:
-        return self.smriti_stt_backend
+        return "groq"
 
     @property
-    def fully_local(self) -> bool:
+    def local_memory_and_models(self) -> bool:
         return (
             self.memory_mode == "local"
             and self.llm_backend == "ollama"
             and self.vision_backend == "ollama"
-            and self.stt_backend == "parakeet"
         )
 
     @property
