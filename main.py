@@ -106,41 +106,13 @@ def create_app(
             "target",
             getattr(settings, "effective_supermemory_base_url", "test"),
         )
-        llm_backend = getattr(
-            structurer,
-            "backend",
-            getattr(settings, "llm_backend", "test"),
-        )
-        vision_backend = getattr(
-            getattr(document_extractor, "vision_backend", None),
-            "backend",
-            getattr(settings, "vision_backend", "test"),
-        )
-        stt_backend = getattr(
-            transcriber,
-            "backend",
-            getattr(settings, "stt_backend", "test"),
-        )
-        groq_needed = "groq" in {llm_backend, vision_backend, stt_backend}
-        groq_ok = (
-            bool(settings.groq_api_key and settings.groq_model)
-            if settings and groq_needed
-            else True
-        )
+        groq_ok = bool(settings.groq_api_key and settings.groq_model) if settings else True
         return StatusResponse(
             api="ok",
             supermemory="ok" if supermemory_ok else "error",
             groq="configured" if groq_ok else "missing",
             memory_mode=memory_mode,
             memory_target=memory_target or "Supermemory Cloud",
-            llm_backend=llm_backend,
-            vision_backend=vision_backend,
-            stt_backend=stt_backend,
-            local_memory_and_models=(
-                getattr(settings, "local_memory_and_models", False)
-                if settings
-                else False
-            ),
             detail=detail,
         )
 

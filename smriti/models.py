@@ -262,10 +262,6 @@ class StatusResponse(BaseModel):
     groq: str
     memory_mode: str
     memory_target: str
-    llm_backend: str = "groq"
-    vision_backend: str = "groq"
-    stt_backend: str = "groq"
-    local_memory_and_models: bool = False
     detail: str | None = None
 
 

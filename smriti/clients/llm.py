@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 from typing import BinaryIO
 
-import httpx
 from groq import Groq
 from pydantic import ValidationError
 
@@ -33,42 +32,6 @@ class _GroqClient:
             temperature=0,
         )
         return json.loads(completion.choices[0].message.content or "{}")
-
-
-class _OllamaClient:
-    backend = "ollama"
-
-    def __init__(self, settings: Settings):
-        self._http = httpx.Client(
-            base_url=settings.ollama_base_url.rstrip("/"),
-            timeout=120,
-        )
-        self._text_model = settings.ollama_text_model
-        self._vision_model = settings.ollama_vision_model
-
-    def _chat(self, model: str, messages: list[dict], *, json_mode: bool = False) -> str:
-        payload = {
-            "model": model,
-            "messages": messages,
-            "stream": False,
-            "options": {"temperature": 0},
-        }
-        if json_mode:
-            payload["format"] = "json"
-        response = self._http.post("/api/chat", json=payload)
-        response.raise_for_status()
-        return (response.json().get("message", {}).get("content") or "").strip()
-
-    def _json_completion(self, system: str, user: str) -> dict:
-        content = self._chat(
-            self._text_model,
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            json_mode=True,
-        )
-        return json.loads(content or "{}")
 
 
 class _StructurerMixin:
@@ -132,10 +95,6 @@ class GroqStructurer(_StructurerMixin, _GroqClient):
     pass
 
 
-class OllamaStructurer(_StructurerMixin, _OllamaClient):
-    pass
-
-
 class _AnswererMixin:
     def answer(
         self, question: str, persona: Persona, memories: list[MemoryEntry]
@@ -182,11 +141,6 @@ class GroqAnswerer(_AnswererMixin, _GroqClient):
             temperature=0,
         )
         return completion.choices[0].message.content or "I don't have a record of that."
-
-
-class OllamaAnswerer(_AnswererMixin, _OllamaClient):
-    def _plain_completion(self, messages: list[dict]) -> str:
-        return self._chat(self._text_model, messages) or "I don't have a record of that."
 
 
 class _SummarizerMixin:
@@ -249,11 +203,6 @@ class GroqSummarizer(_SummarizerMixin, _GroqClient):
         return completion.choices[0].message.content or "No recorded items."
 
 
-class OllamaSummarizer(_SummarizerMixin, _OllamaClient):
-    def _plain_completion(self, messages: list[dict]) -> str:
-        return self._chat(self._text_model, messages) or "No recorded items."
-
-
 class GroqTranscriber(_GroqClient):
     def __init__(self, settings: Settings):
         super().__init__(settings)
@@ -312,77 +261,21 @@ class GroqVisionExtractor(_GroqClient):
         return (completion.choices[0].message.content or "").strip()
 
 
-class OllamaVisionExtractor(_OllamaClient):
-    def extract(self, data_url: str, filename: str) -> str:
-        image = _base64_from_data_url(data_url)
-        return self._chat(
-            self._vision_model,
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        f"{SAFETY_RULES}\n"
-                        "Extract visible text from medical reports, prescriptions, lab reports, "
-                        "and medicine labels. Preserve medicine names, doses, frequencies, dates, "
-                        "doctor instructions, and lab values. If the image is blurry or unreadable, "
-                        "say exactly: UNREADABLE."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Extract text from this medical document image: {filename}",
-                    "images": [image],
-                },
-            ],
-        )
-
-
-def _base64_from_data_url(data_url: str) -> str:
-    if "," not in data_url:
-        return data_url
-    return data_url.split(",", 1)[1]
-
-
-def _unsupported_backend(kind: str, backend: str) -> NotImplementedError:
-    return NotImplementedError(
-        f"{kind} backend '{backend}' is configured but not implemented yet. "
-        "Use Groq for Phase 11A, then add the local provider in Phase 11B."
-    )
-
-
 def create_structurer(settings: Settings):
-    if settings.llm_backend == "groq":
-        return GroqStructurer(settings)
-    if settings.llm_backend == "ollama":
-        return OllamaStructurer(settings)
-    raise _unsupported_backend("LLM", settings.llm_backend)
+    return GroqStructurer(settings)
 
 
 def create_answerer(settings: Settings):
-    if settings.llm_backend == "groq":
-        return GroqAnswerer(settings)
-    if settings.llm_backend == "ollama":
-        return OllamaAnswerer(settings)
-    raise _unsupported_backend("LLM", settings.llm_backend)
+    return GroqAnswerer(settings)
 
 
 def create_summarizer(settings: Settings):
-    if settings.llm_backend == "groq":
-        return GroqSummarizer(settings)
-    if settings.llm_backend == "ollama":
-        return OllamaSummarizer(settings)
-    raise _unsupported_backend("LLM", settings.llm_backend)
+    return GroqSummarizer(settings)
 
 
 def create_transcriber(settings: Settings):
-    if settings.stt_backend == "groq":
-        return GroqTranscriber(settings)
-    raise _unsupported_backend("STT", settings.stt_backend)
+    return GroqTranscriber(settings)
 
 
 def create_vision_extractor(settings: Settings):
-    if settings.vision_backend == "groq":
-        return GroqVisionExtractor(settings)
-    if settings.vision_backend == "ollama":
-        return OllamaVisionExtractor(settings)
-    raise _unsupported_backend("Vision", settings.vision_backend)
+    return GroqVisionExtractor(settings)

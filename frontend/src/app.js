@@ -364,13 +364,10 @@ function App() {
 
 function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck }) {
   const mode = status?.memory_mode ? ` · ${status.memory_mode}` : "";
-  const aiLabel = status
-    ? `AI ${status.llm_backend || "?"}/${status.vision_backend || "?"}/${status.stt_backend || "?"}`
-    : "AI checking";
   const label = statusOk
-    ? `Ready${mode} · ${aiLabel}${status?.local_memory_and_models ? " · local memory + models" : ""}`
+    ? `Ready${mode} · Groq AI`
     : status
-      ? `API ${status.api} | Memory ${status.supermemory}${mode} | ${aiLabel}`
+      ? `API ${status.api} | Memory ${status.supermemory}${mode} | Groq ${status.groq}`
       : "Checking";
   const checkItems = memoryCheck ? [
     ["Save", memoryCheck.save_ok],
