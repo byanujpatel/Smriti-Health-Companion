@@ -15,8 +15,11 @@ def retrieve_memories(memory, request: AskRequest):
         limit=request.search_limit,
         threshold=request.search_threshold,
         rerank=request.rerank,
+        subject_id=request.subject_id,
     )
-    history_memories = memory.list(request.persona, limit=request.search_limit)
+    history_memories = memory.list(
+        request.persona, limit=request.search_limit, subject_id=request.subject_id
+    )
     outside_date_candidates = dedupe_memories(
         [
             *[entry for entry in supermemory_memories if not request.includes(entry.occurred_at)],

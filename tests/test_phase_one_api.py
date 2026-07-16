@@ -40,6 +40,7 @@ class FakeMemory:
         threshold=0.3,
         rerank=True,
         search_mode="hybrid",
+        subject_id=None,
     ):
         self.last_search = {
             "question": question,
@@ -48,13 +49,24 @@ class FakeMemory:
             "threshold": threshold,
             "rerank": rerank,
             "search_mode": search_mode,
+            "subject_id": subject_id,
         }
         if self.search_returns_empty:
             return []
-        return [entry for entry in self.saved if entry.persona == persona]
+        return [
+            entry
+            for entry in self.saved
+            if entry.persona == persona
+            and (subject_id is None or entry.subject_id == subject_id)
+        ]
 
-    def list(self, persona, limit=50):
-        return [entry for entry in self.saved if entry.persona == persona][:limit]
+    def list(self, persona, limit=50, subject_id=None):
+        return [
+            entry
+            for entry in self.saved
+            if entry.persona == persona
+            and (subject_id is None or entry.subject_id == subject_id)
+        ][:limit]
 
     def update(self, id, entry):
         for index, saved in enumerate(self.saved):
@@ -289,6 +301,62 @@ def test_personas_are_isolated_during_retrieval():
     assert body["debug"]["accepted_count"] == 0
     assert body["debug"]["fallback_count"] == 0
     assert body["debug"]["candidates"] == []
+
+
+def test_subjects_are_isolated_within_care_persona():
+    memory = FakeMemory()
+    app = create_app(
+        structurer=FakeStructurer(), memory=memory, answerer=FakeAnswerer()
+    )
+    client = TestClient(app)
+
+    papa_card = client.post(
+        "/ingest/preview",
+        json={
+            "text": "Papa did not sleep",
+            "persona": "care",
+            "subject_id": "papa",
+            "subject_name": "Papa",
+        },
+    ).json()["memories"][0]
+    mummy_card = {
+        **papa_card,
+        "text": "Mummy had a headache.",
+        "subject_id": "mummy",
+        "subject_name": "Mummy",
+        "raw": "Mummy had a headache.",
+    }
+    client.post("/memories", json={"memories": [papa_card, mummy_card]})
+
+    history = client.get("/memories?persona=care&subject_id=mummy")
+    answer = client.post(
+        "/ask",
+        json={
+            "question": "When did Papa sleep badly?",
+            "persona": "care",
+            "subject_id": "mummy",
+        },
+    )
+
+    assert history.status_code == 200
+    assert [item["subject_id"] for item in history.json()] == ["mummy"]
+    assert answer.status_code == 200
+    assert answer.json()["answer"] == "I don't have a record of that."
+    assert answer.json()["sources"] == []
+
+
+def test_care_memory_defaults_to_papa_subject():
+    entry = MemoryEntry(
+        text="Papa had stomach pain.",
+        type="symptom",
+        persona="care",
+        occurred_at="2026-07-11T19:04:00+05:30",
+        entities={},
+        raw="Papa had stomach pain.",
+    )
+
+    assert entry.subject_id == "papa"
+    assert entry.subject_name == "Papa"
 
 
 def test_ask_filters_retrieved_memories_by_date_window():

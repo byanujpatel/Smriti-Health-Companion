@@ -55,6 +55,16 @@ from smriti.services.retrieval_service import retrieve_memories
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 
+def apply_subject(
+    entry: MemoryEntry, subject_id: str | None, subject_name: str | None
+) -> MemoryEntry:
+    if subject_id:
+        entry.subject_id = subject_id
+    if subject_name:
+        entry.subject_name = subject_name
+    return MemoryEntry.model_validate(entry.model_dump())
+
+
 def create_app(
     *,
     structurer: StructurerProvider | None = None,
@@ -196,11 +206,17 @@ def create_app(
             request.text, request.persona, request.current_datetime
         )
         memories = [
-            entry if isinstance(entry, MemoryEntry) else MemoryEntry.model_validate(entry)
+            apply_subject(
+                entry if isinstance(entry, MemoryEntry) else MemoryEntry.model_validate(entry),
+                request.subject_id,
+                request.subject_name,
+            )
             for entry in memories
         ]
         try:
-            existing = memory.list(request.persona, limit=100)
+            existing = memory.list(
+                request.persona, limit=100, subject_id=request.subject_id
+            )
         except (APIConnectionError, APIStatusError, httpx.HTTPError):
             existing = []
         return PreviewResponse(
@@ -214,6 +230,8 @@ def create_app(
     @app.post("/documents/preview", response_model=PreviewResponse)
     async def preview_document(
         persona: Persona = Form(...),
+        subject_id: str | None = Form(default=None),
+        subject_name: str | None = Form(default=None),
         current_datetime: datetime | None = Form(default=None),
         file: UploadFile = File(...),
     ) -> PreviewResponse:
@@ -241,7 +259,10 @@ def create_app(
                 extraction_method=extracted.extraction_method,
                 structurer=structurer,
             )
-            existing = memory.list(persona, limit=100)
+            memories = [
+                apply_subject(entry, subject_id, subject_name) for entry in memories
+            ]
+            existing = memory.list(persona, limit=100, subject_id=subject_id)
         except DocumentIngestionError as error:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -289,9 +310,11 @@ def create_app(
         )
 
     @app.get("/memories", response_model=list[MemoryEntry])
-    def list_memories(persona: Persona, limit: int = 50) -> list[MemoryEntry]:
+    def list_memories(
+        persona: Persona, limit: int = 50, subject_id: str | None = None
+    ) -> list[MemoryEntry]:
         try:
-            memories = memory.list(persona, limit=limit)
+            memories = memory.list(persona, limit=limit, subject_id=subject_id)
         except (APIConnectionError, APIStatusError, httpx.HTTPError) as error:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -349,6 +372,7 @@ def create_app(
                 ask_request = AskRequest(
                     question=case.question,
                     persona=request.persona,
+                    subject_id=request.subject_id,
                     from_date=request.from_date,
                     to_date=request.to_date,
                     accept_threshold=request.accept_threshold,
@@ -412,7 +436,9 @@ def create_app(
     @app.post("/summary", response_model=SummaryResponse)
     def visit_summary(request: SummaryRequest) -> SummaryResponse:
         try:
-            memories = memory.list(request.persona, limit=100)
+            memories = memory.list(
+                request.persona, limit=100, subject_id=request.subject_id
+            )
         except (APIConnectionError, APIStatusError, httpx.HTTPError) as error:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,

@@ -24,20 +24,28 @@ class MemoryEntry(BaseModel):
     text: str = Field(min_length=1)
     type: MemoryType
     persona: Persona
+    subject_id: str | None = None
+    subject_name: str | None = None
     occurred_at: datetime
     occurred_at_epoch: int | None = None
     entities: dict[str, Any] = Field(default_factory=dict)
     raw: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def populate_epoch(self):
+    def populate_defaults(self):
         self.occurred_at_epoch = int(self.occurred_at.timestamp())
+        if not self.subject_id:
+            self.subject_id = default_subject_id(self.persona)
+        if not self.subject_name:
+            self.subject_name = default_subject_name(self.subject_id)
         return self
 
 
 class PreviewRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     persona: Persona
+    subject_id: str | None = None
+    subject_name: str | None = None
     current_datetime: datetime = Field(default_factory=lambda: datetime.now().astimezone())
 
     @model_validator(mode="after")
@@ -67,6 +75,8 @@ class MemoryUpdate(BaseModel):
     text: str = Field(min_length=1)
     type: MemoryType
     persona: Persona
+    subject_id: str | None = None
+    subject_name: str | None = None
     occurred_at: datetime
     entities: dict[str, Any] = Field(default_factory=dict)
     raw: str = Field(min_length=1)
@@ -77,6 +87,8 @@ class MemoryUpdate(BaseModel):
             text=self.text,
             type=self.type,
             persona=self.persona,
+            subject_id=self.subject_id,
+            subject_name=self.subject_name,
             occurred_at=self.occurred_at,
             entities=self.entities,
             raw=self.raw,
@@ -98,6 +110,7 @@ class DemoLoadResponse(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2_000)
     persona: Persona
+    subject_id: str | None = None
     from_date: date | None = None
     to_date: date | None = None
     accept_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
@@ -177,6 +190,7 @@ class RetrievalEvalCase(BaseModel):
 
 class RetrievalEvalRequest(BaseModel):
     persona: Persona
+    subject_id: str | None = None
     cases: list[RetrievalEvalCase] = Field(min_length=1, max_length=20)
     from_date: date | None = None
     to_date: date | None = None
@@ -219,6 +233,7 @@ class RetrievalEvalResponse(BaseModel):
 
 class SummaryRequest(BaseModel):
     persona: Persona
+    subject_id: str | None = None
     from_date: date | None = None
     to_date: date | None = None
 
@@ -274,3 +289,16 @@ class MemoryCheckResponse(BaseModel):
     saved_id: str | None = None
     searched_count: int = 0
     detail: str | None = None
+
+
+def default_subject_id(persona: Persona) -> str:
+    return "myself" if persona == Persona.SELF else "papa"
+
+
+def default_subject_name(subject_id: str | None) -> str:
+    names = {
+        "papa": "Papa",
+        "mummy": "Mummy",
+        "myself": "Myself",
+    }
+    return names.get(subject_id or "", subject_id or "Unknown")

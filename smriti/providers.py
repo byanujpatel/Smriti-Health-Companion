@@ -12,7 +12,9 @@ class MemoryProvider(Protocol):
 
     def add(self, entry: MemoryEntry) -> str: ...
 
-    def list(self, persona: Persona, limit: int = 50) -> list[MemoryEntry]: ...
+    def list(
+        self, persona: Persona, limit: int = 50, subject_id: str | None = None
+    ) -> list[MemoryEntry]: ...
 
     def update(self, id: str, entry: MemoryEntry) -> MemoryEntry: ...
 
@@ -28,6 +30,7 @@ class MemoryProvider(Protocol):
         threshold: float = 0.3,
         rerank: bool = True,
         search_mode: str = "hybrid",
+        subject_id: str | None = None,
     ) -> list[MemoryEntry]: ...
 
 

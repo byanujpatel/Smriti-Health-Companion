@@ -9,7 +9,7 @@ import httpx
 from supermemory import Supermemory
 
 from smriti.config import Settings
-from smriti.models import MemoryEntry, Persona
+from smriti.models import MemoryEntry, Persona, default_subject_id
 
 
 CONTAINERS = {
@@ -52,6 +52,8 @@ class SupermemoryClient:
         ).hexdigest()
         metadata = {
                 "persona": entry.persona.value,
+                "subject_id": entry.subject_id,
+                "subject_name": entry.subject_name,
                 "type": entry.type.value,
                 "occurred_at": entry.occurred_at.isoformat(),
                 "occurred_at_epoch": entry.occurred_at_epoch,
@@ -81,14 +83,17 @@ class SupermemoryClient:
         )
         return str(response.id)
 
-    def list(self, persona: Persona, limit: int = 50) -> list[MemoryEntry]:
+    def list(
+        self, persona: Persona, limit: int = 50, subject_id: str | None = None
+    ) -> list[MemoryEntry]:
+        filters = [{"key": "persona", "value": persona.value}]
         request = {
             "containerTags": [CONTAINERS[persona]],
             "includeContent": True,
             "limit": limit,
             "order": "desc",
             "sort": "createdAt",
-            "filters": {"AND": [{"key": "persona", "value": persona.value}]},
+            "filters": {"AND": filters},
         }
         if self._is_local:
             response = self._http.post("/v3/documents/list", json=request)
@@ -104,7 +109,7 @@ class SupermemoryClient:
                 filters=request["filters"],
             )
             results = response.memories
-        return self._entries_from_documents(results, persona)
+        return self._entries_from_documents(results, persona, subject_id)
 
     def update(self, id: str, entry: MemoryEntry) -> MemoryEntry:
         metadata = self._metadata(entry)
@@ -158,7 +163,9 @@ class SupermemoryClient:
         threshold: float = 0.3,
         rerank: bool = True,
         search_mode: str = "hybrid",
+        subject_id: str | None = None,
     ) -> list[MemoryEntry]:
+        filters = [{"key": "persona", "value": persona.value}]
         request = {
             "q": question,
             "containerTag": CONTAINERS[persona],
@@ -166,7 +173,7 @@ class SupermemoryClient:
             "searchMode": search_mode,
             "threshold": threshold,
             "rerank": rerank,
-            "filters": {"AND": [{"key": "persona", "value": persona.value}]},
+            "filters": {"AND": filters},
         }
         if self._is_local:
             response = self._http.post("/v4/search", json=request)
@@ -189,6 +196,9 @@ class SupermemoryClient:
             metadata = data.get("metadata") or {}
             if metadata.get("persona") != persona.value:
                 continue
+            result_subject_id = metadata.get("subject_id") or default_subject_id(persona)
+            if subject_id and result_subject_id != subject_id:
+                continue
             entries.append(
                 MemoryEntry(
                     id=str(data.get("id")) if data.get("id") else None,
@@ -198,6 +208,8 @@ class SupermemoryClient:
                     or data.get("text"),
                     type=metadata.get("type", "remark"),
                     persona=persona,
+                    subject_id=result_subject_id,
+                    subject_name=metadata.get("subject_name"),
                     occurred_at=metadata["occurred_at"],
                     entities=json.loads(metadata.get("entities_json", "{}")),
                     raw=metadata.get("raw")
@@ -212,6 +224,8 @@ class SupermemoryClient:
     def _metadata(entry: MemoryEntry) -> dict[str, Any]:
         return {
             "persona": entry.persona.value,
+            "subject_id": entry.subject_id,
+            "subject_name": entry.subject_name,
             "type": entry.type.value,
             "occurred_at": entry.occurred_at.isoformat(),
             "occurred_at_epoch": entry.occurred_at_epoch,
@@ -220,13 +234,16 @@ class SupermemoryClient:
         }
 
     def _entries_from_documents(
-        self, documents: list[Any], persona: Persona
+        self, documents: list[Any], persona: Persona, subject_id: str | None = None
     ) -> list[MemoryEntry]:
         entries: list[MemoryEntry] = []
         for document in documents:
             data = self._result_data(document)
             metadata = data.get("metadata") or {}
             if metadata.get("persona") != persona.value:
+                continue
+            result_subject_id = metadata.get("subject_id") or default_subject_id(persona)
+            if subject_id and result_subject_id != subject_id:
                 continue
             text = data.get("content") or data.get("summary") or data.get("title")
             if not text:
@@ -237,6 +254,8 @@ class SupermemoryClient:
                     text=text,
                     type=metadata.get("type", "remark"),
                     persona=persona,
+                    subject_id=result_subject_id,
+                    subject_name=metadata.get("subject_name"),
                     occurred_at=metadata["occurred_at"],
                     entities=json.loads(metadata.get("entities_json", "{}")),
                     raw=metadata.get("raw") or text,

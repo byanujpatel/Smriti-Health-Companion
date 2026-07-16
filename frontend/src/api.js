@@ -28,7 +28,7 @@ export const api = {
   preview: (body) => request("/ingest/preview", jsonPost(body)),
   previewDocument: (formData) => request("/documents/preview", { method: "POST", body: formData }),
   saveMemories: (memories) => request("/memories", jsonPost({ memories })),
-  listMemories: (persona, limit = 50) => request(`/memories?persona=${persona}&limit=${limit}`),
+  listMemories: (persona, subjectId, limit = 50) => request(`/memories?persona=${persona}&limit=${limit}${subjectId ? `&subject_id=${encodeURIComponent(subjectId)}` : ""}`),
   updateMemory: (id, body) => request(`/memories/${id}`, jsonPatch(body)),
   deleteMemory: (id) => request(`/memories/${id}`, { method: "DELETE" }),
   ask: (body) => request("/ask", jsonPost(body)),

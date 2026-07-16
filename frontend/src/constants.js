@@ -12,3 +12,9 @@ export const samples = {
 };
 
 export const memoryTypes = ["symptom", "medication", "vital", "visit", "document", "remark"];
+
+export const subjects = [
+  { id: "papa", name: "Papa", persona: "care" },
+  { id: "mummy", name: "Mummy", persona: "care" },
+  { id: "myself", name: "Myself", persona: "self" },
+];

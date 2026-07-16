@@ -7,7 +7,7 @@ def save_unique_memories(memory, entries: list[MemoryEntry]) -> tuple[list[str],
     if not entries:
         return [], 0
     persona = entries[0].persona
-    existing = memory.list(persona, limit=100)
+    existing = memory.list(persona, limit=100, subject_id=entries[0].subject_id)
     ids = []
     skipped = 0
     seen = set()
@@ -69,4 +69,4 @@ def is_duplicate_memory(entry: MemoryEntry, existing: list[MemoryEntry]) -> bool
 
 def memory_key(entry: MemoryEntry) -> str:
     text = re.sub(r"\s+", " ", entry.text.lower()).strip()
-    return f"{entry.persona.value}:{entry.type.value}:{entry.occurred_at.date().isoformat()}:{text}"
+    return f"{entry.persona.value}:{entry.subject_id}:{entry.type.value}:{entry.occurred_at.date().isoformat()}:{text}"

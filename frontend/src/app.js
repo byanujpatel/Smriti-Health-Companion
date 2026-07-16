@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, friendlyError } from "./api.js";
-import { memoryTypes, samples } from "./constants.js";
+import { memoryTypes, samples, subjects } from "./constants.js";
 import { displayDateTime, isoDate, localDateTimeInputValue, toApiDateTime } from "./time.js";
 import { VoiceButton } from "./voice.js";
 
 const h = React.createElement;
 
 function App() {
-  const [persona, setPersona] = useState("care");
+  const [subject, setSubject] = useState(subjects[0]);
+  const persona = subject.persona;
   const [status, setStatus] = useState(null);
   const [memoryCheck, setMemoryCheck] = useState(null);
   const [notice, setNotice] = useState("Ready");
@@ -39,14 +40,14 @@ function App() {
   const [maybeThreshold, setMaybeThreshold] = useState(0.30);
 
   const statusOk = status?.api === "ok" && status?.supermemory === "ok" && status?.groq === "configured";
-  const activeTitle = persona === "care" ? "Care memory" : "Self memory";
+  const activeTitle = `${subject.name} memory`;
 
   useEffect(() => {
     refreshStatus();
   }, []);
 
   useEffect(() => {
-    setLog(samples[persona][0]);
+    setLog(samples[subject.persona][0]);
     setPreview([]);
     setPreviewSelected([]);
     setPreviewQuality([]);
@@ -54,8 +55,8 @@ function App() {
     setSummary(null);
     setEditingId(null);
     setEditDraft(null);
-    loadHistory(persona);
-  }, [persona]);
+    loadHistory(subject.persona, subject.id);
+  }, [subject]);
 
   async function refreshStatus() {
     try {
@@ -80,10 +81,10 @@ function App() {
     }
   }
 
-  async function loadHistory(nextPersona = persona) {
+  async function loadHistory(nextPersona = persona, nextSubjectId = subject.id) {
     setNotice("Loading memories...");
     try {
-      const data = await api.listMemories(nextPersona);
+      const data = await api.listMemories(nextPersona, nextSubjectId);
       setHistory(data);
       setNotice(`Loaded ${data.length} memories`);
     } catch (error) {
@@ -100,6 +101,8 @@ function App() {
       const data = await api.preview({
         text: log,
         persona,
+        subject_id: subject.id,
+        subject_name: subject.name,
         current_datetime: toApiDateTime(memoryDatetime),
       });
       setPreview(data.memories);
@@ -124,7 +127,7 @@ function App() {
       setPreview([]);
       setPreviewSelected([]);
       setPreviewQuality([]);
-      setTimeout(() => loadHistory(persona), 1000);
+      setTimeout(() => loadHistory(persona, subject.id), 1000);
     } catch (error) {
       setNotice(friendlyError(error));
     }
@@ -133,7 +136,7 @@ function App() {
   async function askMemory() {
     setNotice("Searching memory...");
     try {
-      const data = await api.ask(retrievalBody({ question, persona }));
+      const data = await api.ask(retrievalBody({ question, persona, subject_id: subject.id }));
       setAnswer(data);
       setNotice("Answer ready");
     } catch (error) {
@@ -157,7 +160,7 @@ function App() {
       return;
     }
     try {
-      const data = await api.evalRetrieval(retrievalBody({ persona, cases }));
+      const data = await api.evalRetrieval(retrievalBody({ persona, subject_id: subject.id, cases }));
       setEvalResult(data);
       setNotice(`Retrieval check: ${data.pass_count} pass, ${data.fail_count} fail`);
     } catch (error) {
@@ -183,7 +186,7 @@ function App() {
 
   async function generateSummary() {
     setNotice("Generating visit summary...");
-    const body = { persona };
+    const body = { persona, subject_id: subject.id };
     if (summaryFromDate) body.from_date = summaryFromDate;
     if (summaryToDate) body.to_date = summaryToDate;
     try {
@@ -204,7 +207,6 @@ function App() {
     setNotice("Loading demo memories...");
     try {
       const data = await api.loadDemo();
-      setPersona("care");
       setFromDate("");
       setToDate("");
       setQuestion("What was Papa's BP?");
@@ -213,7 +215,8 @@ function App() {
       setAnswer(null);
       setEvalResult(null);
       setNotice(`Demo ready: saved ${data.ids.length}, skipped ${data.skipped_duplicates} duplicate${data.skipped_duplicates === 1 ? "" : "s"}`);
-      setTimeout(() => loadHistory("care"), 1000);
+      setSubject(subjects[0]);
+      setTimeout(() => loadHistory("care", "papa"), 1000);
     } catch (error) {
       setNotice(friendlyError(error));
     }
@@ -231,6 +234,8 @@ function App() {
       text: editDraft.text,
       type: editDraft.type,
       persona: editDraft.persona,
+      subject_id: editDraft.subject_id,
+      subject_name: editDraft.subject_name,
       occurred_at: editDraft.occurred_at,
       entities: editDraft.entities || {},
       raw: editDraft.raw || editDraft.text,
@@ -297,14 +302,14 @@ function App() {
         )
       ),
       h("div", { className: "persona-card" },
-        h("span", { className: "eyebrow" }, "Persona"),
+        h("span", { className: "eyebrow" }, "Person"),
         h("div", { className: "segmented" },
-          ["care", "self"].map((item) =>
+          subjects.map((item) =>
             h("button", {
-              key: item,
-              className: persona === item ? "active" : "",
-              onClick: () => setPersona(item),
-            }, item === "care" ? "Care" : "Self")
+              key: item.id,
+              className: subject.id === item.id ? "active" : "",
+              onClick: () => setSubject(item),
+            }, item.name)
           )
         )
       ),
@@ -338,7 +343,7 @@ function App() {
         )
       ),
       activeView === "remember" && h(RememberView, {
-        persona, log, setLog, currentDatetime, setCurrentDatetime, showMemoryDate,
+        persona, subject, log, setLog, currentDatetime, setCurrentDatetime, showMemoryDate,
         setShowMemoryDate, previewLog, preview, previewQuality, updatePreview,
         savePreview, setPreview, setPreviewQuality, setPreviewSelected,
         previewSelected, togglePreview, setPreviewFromUpload, setNotice,
@@ -351,7 +356,7 @@ function App() {
         evalText, setEvalText, evalResult, runRetrievalEval,
       }),
       activeView === "history" && h(HistoryView, {
-        history, loadHistory, persona, editingId, setEditingId, editDraft,
+        history, loadHistory, persona, subject, editingId, setEditingId, editDraft,
         setEditDraft, saveEdit, deleteMemory,
       }),
       activeView === "summary" && h(SummaryView, {
@@ -404,6 +409,8 @@ function RememberView(props) {
     if (!props.showMemoryDate) props.setCurrentDatetime(memoryDatetime);
     const formData = new FormData();
     formData.append("persona", props.persona);
+    formData.append("subject_id", props.subject.id);
+    formData.append("subject_name", props.subject.name);
     formData.append("current_datetime", toApiDateTime(memoryDatetime));
     formData.append("file", file);
     try {
@@ -420,7 +427,7 @@ function RememberView(props) {
     h("section", { className: "surface primary" },
       h("div", { className: "section-head" },
         h("div", null, h("h3", null, "Add memory"), h("p", null, "Nothing saves until you confirm.")),
-        h("span", { className: "pill accent" }, props.persona)
+        h("span", { className: "pill accent" }, props.subject.name)
       ),
       h("div", { className: "capture-row" },
         h(VoiceButton, { label: "Speak memory", onTranscript: props.setLog }),
@@ -479,7 +486,7 @@ function PreviewCard({ memory, index, selected, togglePreview, quality = {}, upd
     ),
     h("span", { className: `pill ${quality.duplicate ? "danger-soft" : "good"}` }, quality.confidence || "review"),
     h("div", { className: "pill-row" },
-      h("span", { className: "pill accent" }, memory.persona),
+      h("span", { className: "pill accent" }, memory.subject_name || memory.subject_id || "Person"),
       h("span", { className: "pill" }, memory.type),
       h("span", { className: "pill" }, displayDateTime(memory.occurred_at)),
       (quality.signals || []).map((signal) => h("span", { className: "pill", key: signal }, signal))
@@ -498,7 +505,7 @@ function AskView(props) {
   const sourceCount = props.answer?.sources?.length || 0;
   return h("div", { className: "view-grid" },
     h("section", { className: "surface primary" },
-      h("div", { className: "section-head" }, h("div", null, h("h3", null, "Ask Smriti"), h("p", null, "Answers use selected persona and date window.")), h("span", { className: "pill accent" }, `${sourceCount} sources`)),
+      h("div", { className: "section-head" }, h("div", null, h("h3", null, "Ask Smriti"), h("p", null, "Answers use selected person and date window.")), h("span", { className: "pill accent" }, `${sourceCount} sources`)),
       h(VoiceButton, { label: "Speak question", onTranscript: props.setQuestion }),
       h("input", { value: props.question, onChange: (e) => props.setQuestion(e.target.value), placeholder: "Ask about symptoms, medicine, vitals..." }),
       h(DateFilters, props),
@@ -590,7 +597,7 @@ function HistoryView(props) {
   return h("section", { className: "surface wide-surface" },
     h("div", { className: "section-head" },
       h("div", null, h("h3", null, "Timeline"), h("p", null, "View, edit, or delete saved memories.")),
-      h("button", { className: "button ghost", onClick: () => props.loadHistory(props.persona) }, "Refresh")
+      h("button", { className: "button ghost", onClick: () => props.loadHistory(props.persona, props.subject.id) }, "Refresh")
     ),
     props.history.length === 0 ? h("div", { className: "empty-state" }, "No saved memories loaded yet.") :
       h("div", { className: "timeline-list" }, props.history.map((memory) => h(HistoryItem, { key: memory.id || `${memory.text}-${memory.occurred_at}`, memory, ...props })))
@@ -600,7 +607,7 @@ function HistoryView(props) {
 function HistoryItem({ memory, editingId, setEditingId, editDraft, setEditDraft, saveEdit, deleteMemory }) {
   const editing = editingId === memory.id;
   return h("article", { className: "timeline-item" },
-    h("div", { className: "pill-row" }, h("span", { className: "pill accent" }, memory.persona), h("span", { className: "pill" }, memory.type), h("span", { className: "pill" }, displayDateTime(memory.occurred_at))),
+    h("div", { className: "pill-row" }, h("span", { className: "pill accent" }, memory.subject_name || memory.subject_id || memory.persona), h("span", { className: "pill" }, memory.type), h("span", { className: "pill" }, displayDateTime(memory.occurred_at))),
     editing ? h(EditForm, { draft: editDraft, setDraft: setEditDraft, saveEdit, cancel: () => { setEditingId(null); setEditDraft(null); } }) :
       h(React.Fragment, null, h("p", null, memory.text), h("div", { className: "actions" }, h("button", { className: "button secondary", onClick: () => { setEditingId(memory.id); setEditDraft({ ...memory }); } }, "Edit"), h("button", { className: "button danger", onClick: () => deleteMemory(memory.id) }, "Delete")))
   );
