@@ -64,7 +64,7 @@ p { color: var(--muted); line-height: 1.55; }
 }
 .eyebrow { text-transform: uppercase; letter-spacing: .08em; color: var(--teal); font-size: 11px; font-weight: 900; }
 .persona-card { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.56); margin-bottom: 18px; }
-.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 6px; margin-top: 10px; }
 .segmented button, .nav-list button {
   border: 0;
   border-radius: 8px;
@@ -74,6 +74,8 @@ p { color: var(--muted); line-height: 1.55; }
   font-weight: 850;
 }
 .segmented .active, .nav-list .active { background: var(--deep); color: #fff; }
+.add-person { display: grid; gap: 6px; margin-top: 10px; }
+.add-person input, .add-person select { min-width: 0; }
 .nav-list { display: grid; gap: 8px; margin-bottom: 18px; }
 .nav-list button { text-align: left; border: 1px solid transparent; }
 .nav-list button:not(.active) { border-color: var(--line); background: rgba(255,255,255,.5); }

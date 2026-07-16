@@ -1,14 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, friendlyError } from "./api.js";
-import { memoryTypes, samples, subjects } from "./constants.js";
+import { defaultSubjects, memoryTypes, samples } from "./constants.js";
 import { displayDateTime, isoDate, localDateTimeInputValue, toApiDateTime } from "./time.js";
 import { VoiceButton } from "./voice.js";
 
 const h = React.createElement;
+const SUBJECTS_STORAGE_KEY = "smriti.subjects";
 
 function App() {
-  const [subject, setSubject] = useState(subjects[0]);
+  const [subjects, setSubjects] = useState(loadSubjects);
+  const [subject, setSubject] = useState(() => loadSubjects()[0]);
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [newSubjectPersona, setNewSubjectPersona] = useState("care");
   const persona = subject.persona;
   const [status, setStatus] = useState(null);
   const [memoryCheck, setMemoryCheck] = useState(null);
@@ -45,6 +49,10 @@ function App() {
   useEffect(() => {
     refreshStatus();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjects));
+  }, [subjects]);
 
   useEffect(() => {
     setLog(samples[subject.persona][0]);
@@ -215,7 +223,7 @@ function App() {
       setAnswer(null);
       setEvalResult(null);
       setNotice(`Demo ready: saved ${data.ids.length}, skipped ${data.skipped_duplicates} duplicate${data.skipped_duplicates === 1 ? "" : "s"}`);
-      setSubject(subjects[0]);
+      setSubject(subjects.find((item) => item.id === "papa") || subjects[0]);
       setTimeout(() => loadHistory("care", "papa"), 1000);
     } catch (error) {
       setNotice(friendlyError(error));
@@ -285,6 +293,20 @@ function App() {
     setPreviewSelected((items) => items.map((item, current) => current === index ? !item : item));
   }
 
+  function addSubject() {
+    const name = newSubjectName.trim();
+    if (!name) {
+      setNotice("Enter a person name.");
+      return;
+    }
+    const id = uniqueSubjectId(slugify(name), subjects);
+    const nextSubject = { id, name, persona: newSubjectPersona };
+    setSubjects((items) => [...items, nextSubject]);
+    setSubject(nextSubject);
+    setNewSubjectName("");
+    setNotice(`Added ${name}`);
+  }
+
   const views = [
     ["remember", "Remember"],
     ["ask", "Ask"],
@@ -311,6 +333,24 @@ function App() {
               onClick: () => setSubject(item),
             }, item.name)
           )
+        ),
+        h("div", { className: "add-person" },
+          h("input", {
+            value: newSubjectName,
+            onChange: (event) => setNewSubjectName(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === "Enter") addSubject();
+            },
+            placeholder: "Add anyone...",
+          }),
+          h("select", {
+            value: newSubjectPersona,
+            onChange: (event) => setNewSubjectPersona(event.target.value),
+          },
+            h("option", { value: "care" }, "Care"),
+            h("option", { value: "self" }, "Self")
+          ),
+          h("button", { className: "button mini secondary", onClick: addSubject }, "+ Add person")
         )
       ),
       h("nav", { className: "nav-list" },
@@ -635,6 +675,42 @@ function SummaryView(props) {
     h("div", { className: "actions" }, h("button", { className: "button", onClick: props.generateSummary }, "Generate summary"), h("button", { className: "button secondary", onClick: props.copySummary, disabled: !props.summary }, "Copy")),
     props.summary ? h("div", { className: "answer-block" }, h("p", null, props.summary.summary), h("div", { className: "source-list" }, props.summary.sources.map((source) => h("div", { className: "source", key: source.id || source.text }, h("small", null, displayDateTime(source.occurred_at)), h("div", null, source.text))))) : h("div", { className: "empty-state" }, "Choose a date range and generate a visit summary.")
   );
+}
+
+function loadSubjects() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SUBJECTS_STORAGE_KEY) || "[]");
+    const validSaved = Array.isArray(saved)
+      ? saved.filter((item) => item?.id && item?.name && item?.persona)
+      : [];
+    const merged = [...defaultSubjects];
+    for (const item of validSaved) {
+      if (!merged.some((existing) => existing.id === item.id)) {
+        merged.push(item);
+      }
+    }
+    return merged;
+  } catch {
+    return defaultSubjects;
+  }
+}
+
+function slugify(name) {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "person";
+}
+
+function uniqueSubjectId(base, subjects) {
+  let id = base;
+  let suffix = 2;
+  while (subjects.some((item) => item.id === id)) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
 }
 
 createRoot(document.getElementById("root")).render(h(App));

@@ -16,8 +16,8 @@ signals, duplicate skipping, and one-click demo data.
 Phase 9 splits the frontend into a deployable React static app served by
 FastAPI, with a public-ready responsive UI. Phase 10 adds local/cloud
 Supermemory modes, deployment checks, and report/prescription upload previews.
-Phase 12 adds person-scoped household memory with Papa, Mummy, and Myself
-subject metadata.
+Phase 12 adds person-scoped household memory with Papa, Mummy, Myself, and any
+custom person/relative you add in the sidebar.
 
 ## Run
 
@@ -42,7 +42,7 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 
 ## Test Flow
 
-1. Select `Papa`, `Mummy`, or `Myself` in the left sidebar.
+1. Select `Papa`, `Mummy`, `Myself`, or add a custom person in the sidebar.
 2. Add a log, for example: `Doctor said Papa should reduce salt from today.`
 2. Click `Preview`.
 3. Edit the card if needed, then click `Save selected`.
@@ -54,7 +54,8 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 ## Frontend Features
 
 - Real React frontend lives in `frontend/` and is served by FastAPI.
-- `Papa` / `Mummy` / `Myself` person picker.
+- Person picker with defaults for `Papa`, `Mummy`, `Myself`, plus `+ Add person`
+  for relatives like Grandad, Mother, Wife, Rahul, etc.
 - Add memory with better date-time input.
 - Preview cards with editable text, type, and occurred-at date.
 - Confirmed save only after preview.
@@ -71,8 +72,10 @@ You can also open [the interactive API](http://127.0.0.1:8000/docs).
 - Voice recording for Health Log input using Groq STT. Transcript fills the text
   box, then the normal preview and confirm flow continues.
 - One-click demo mode loads sample care memories and prefilled retrieval checks.
-- Person-scoped memories store `subject_id` and `subject_name`; old Care
-  memories default to Papa so existing local data still appears.
+- Person-scoped memories store `subject_id` and `subject_name`; custom people
+  are saved in browser localStorage and every confirmed memory stores the
+  selected person. Old Care memories default to Papa so existing local data
+  still appears.
 
 ## Code Layout
 
@@ -178,6 +181,16 @@ UV_CACHE_DIR=/private/tmp/uv-cache uv run uvicorn main:app --reload --port 8000
 
 Open `http://127.0.0.1:8000`, click `Refresh`, then `Test memory`. Add a Papa
 memory, save it, switch to Mummy, and confirm Papa's memory does not appear.
+
+Add any person:
+
+1. In the sidebar, type a name in `Add anyone...`.
+2. Choose `Care` for family/relative, or `Self` for yourself.
+3. Click `+ Add person`.
+4. Save memories as that person; Ask, Timeline, and Summary will filter to that
+   person.
+
+See [Architecture](docs/architecture.md) for the simple system diagram.
 
 Report and prescription uploads:
 
