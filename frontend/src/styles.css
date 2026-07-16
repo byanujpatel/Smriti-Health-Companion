@@ -162,6 +162,8 @@ p { color: var(--muted); line-height: 1.55; }
 .button.wait { background: #836d3b; }
 .button.mini { padding: 7px 10px; font-size: 12px; }
 .button.wide { width: 100%; }
+.button:disabled { cursor: wait; opacity: .72; }
+.button.is-busy { display: inline-flex; align-items: center; gap: 8px; }
 .hidden-file { display: none; }
 .check-label { margin: 0; display: inline-flex; align-items: center; gap: 8px; color: var(--deep); }
 .check-label input { width: auto; }
@@ -179,6 +181,29 @@ p { color: var(--muted); line-height: 1.55; }
 .advanced-details summary { cursor: pointer; font-weight: 900; color: var(--deep); }
 .empty-state { border: 1px dashed #cbd3c9; border-radius: 8px; background: rgba(255,255,255,.52); color: var(--muted); padding: 16px; margin-top: 12px; }
 .empty-state.compact { padding: 10px; font-size: 13px; }
+.surface.working { position: relative; box-shadow: 0 16px 45px rgba(31,111,104,.12); }
+.loading-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(31,111,104,.18);
+  border-radius: 8px;
+  background: rgba(226,242,236,.72);
+  color: var(--deep);
+  font-weight: 850;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin .75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .memory-card, .timeline-item, .eval-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: rgba(255,255,255,.64); margin-top: 12px; }
 .memory-title { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 10px; }

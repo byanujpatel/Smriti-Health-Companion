@@ -17,6 +17,7 @@ function App() {
   const [status, setStatus] = useState(null);
   const [memoryCheck, setMemoryCheck] = useState(null);
   const [notice, setNotice] = useState("Ready");
+  const [busyAction, setBusyAction] = useState(null);
   const [activeView, setActiveView] = useState("remember");
   const [log, setLog] = useState(samples.care[0]);
   const [currentDatetime, setCurrentDatetime] = useState(localDateTimeInputValue());
@@ -77,6 +78,7 @@ function App() {
 
   async function runMemoryCheck() {
     setNotice("Testing memory save, search, cleanup...");
+    setBusyAction("memory-check");
     setMemoryCheck(null);
     try {
       const data = await api.memoryCheck();
@@ -86,11 +88,14 @@ function App() {
     } catch (error) {
       setMemoryCheck({ save_ok: false, search_ok: false, cleanup_ok: false, detail: friendlyError(error) });
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
   async function loadHistory(nextPersona = persona, nextSubjectId = subject.id) {
     setNotice("Loading memories...");
+    setBusyAction("history");
     try {
       const data = await api.listMemories(nextPersona, nextSubjectId);
       setHistory(data);
@@ -98,11 +103,14 @@ function App() {
     } catch (error) {
       setHistory([]);
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
   async function previewLog() {
     setNotice("Structuring memory...");
+    setBusyAction("preview");
     const memoryDatetime = showMemoryDate ? currentDatetime : localDateTimeInputValue();
     if (!showMemoryDate) setCurrentDatetime(memoryDatetime);
     try {
@@ -119,6 +127,8 @@ function App() {
       setNotice(data.memories.length ? `Preview ready: ${data.memories.length} card(s)` : "No health memory found");
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -129,6 +139,7 @@ function App() {
       return;
     }
     setNotice("Saving memory...");
+    setBusyAction("save");
     try {
       const data = await api.saveMemories(selectedMemories);
       setNotice(`Saved ${data.ids.length} memory${data.skipped_duplicates ? `, skipped ${data.skipped_duplicates} duplicate` : ""}`);
@@ -138,17 +149,22 @@ function App() {
       setTimeout(() => loadHistory(persona, subject.id), 1000);
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
   async function askMemory() {
     setNotice("Searching memory...");
+    setBusyAction("ask");
     try {
       const data = await api.ask(retrievalBody({ question, persona, subject_id: subject.id }));
       setAnswer(data);
       setNotice("Answer ready");
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -168,11 +184,14 @@ function App() {
       return;
     }
     try {
+      setBusyAction("eval");
       const data = await api.evalRetrieval(retrievalBody({ persona, subject_id: subject.id, cases }));
       setEvalResult(data);
       setNotice(`Retrieval check: ${data.pass_count} pass, ${data.fail_count} fail`);
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -194,6 +213,7 @@ function App() {
 
   async function generateSummary() {
     setNotice("Generating visit summary...");
+    setBusyAction("summary");
     const body = { persona, subject_id: subject.id };
     if (summaryFromDate) body.from_date = summaryFromDate;
     if (summaryToDate) body.to_date = summaryToDate;
@@ -202,6 +222,8 @@ function App() {
       setNotice("Visit summary ready");
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -213,6 +235,7 @@ function App() {
 
   async function loadDemo() {
     setNotice("Loading demo memories...");
+    setBusyAction("demo");
     try {
       const data = await api.loadDemo();
       setFromDate("");
@@ -227,6 +250,8 @@ function App() {
       setTimeout(() => loadHistory("care", "papa"), 1000);
     } catch (error) {
       setNotice(friendlyError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -362,7 +387,13 @@ function App() {
           }, label)
         )
       ),
-      h("button", { className: "button ghost wide", onClick: loadDemo }, "Load demo memories"),
+      h(BusyButton, {
+        className: "button ghost wide",
+        onClick: loadDemo,
+        busy: busyAction === "demo",
+        label: "Load demo memories",
+        busyLabel: "Loading demo...",
+      }),
       h("p", { className: "sidebar-note" }, "Demo data is local and duplicate-safe.")
     ),
     h("main", { className: "workspace" },
@@ -372,7 +403,7 @@ function App() {
           h("h2", null, "Say it once. Find it when it matters."),
           h("p", null, "Capture care notes by voice or text, confirm the exact memory, then ask from a dated timeline.")
         ),
-        h(StatusBadge, { status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck })
+        h(StatusBadge, { status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck, busyAction })
       ),
       h("section", { className: "flow-strip" },
         ["Speak or type", "Confirm memory", "Ask later"].map((step, index) =>
@@ -386,28 +417,28 @@ function App() {
         persona, subject, log, setLog, currentDatetime, setCurrentDatetime, showMemoryDate,
         setShowMemoryDate, previewLog, preview, previewQuality, updatePreview,
         savePreview, setPreview, setPreviewQuality, setPreviewSelected,
-        previewSelected, togglePreview, setPreviewFromUpload, setNotice,
+        previewSelected, togglePreview, setPreviewFromUpload, setNotice, busyAction, setBusyAction,
       }),
       activeView === "ask" && h(AskView, {
         question, setQuestion, fromDate, setFromDate, toDate, setToDate, setRange,
         askMemory, answer, showAdvanced, setShowAdvanced, searchThreshold,
         setSearchThreshold, searchLimit, setSearchLimit, rerank, setRerank,
         acceptThreshold, setAcceptThreshold, maybeThreshold, setMaybeThreshold,
-        evalText, setEvalText, evalResult, runRetrievalEval,
+        evalText, setEvalText, evalResult, runRetrievalEval, busyAction,
       }),
       activeView === "history" && h(HistoryView, {
-        history, loadHistory, persona, subject, editingId, setEditingId, editDraft,
+        history, loadHistory, persona, subject, editingId, setEditingId, editDraft, busyAction,
         setEditDraft, saveEdit, deleteMemory,
       }),
       activeView === "summary" && h(SummaryView, {
         summary, summaryFromDate, setSummaryFromDate, summaryToDate,
-        setSummaryToDate, generateSummary, copySummary,
+        setSummaryToDate, generateSummary, copySummary, busyAction,
       })
     )
   );
 }
 
-function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck }) {
+function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck, busyAction }) {
   const mode = status?.memory_mode ? ` · ${status.memory_mode}` : "";
   const label = statusOk
     ? `Ready${mode} · Groq AI`
@@ -433,7 +464,14 @@ function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, 
     memoryCheck?.detail && h("p", { className: "tiny-warn" }, memoryCheck.detail),
     h("div", { className: "inline-actions tight" },
       h("button", { className: "button mini ghost", onClick: refreshStatus }, "Refresh"),
-      h("button", { className: "button mini secondary", onClick: runMemoryCheck, disabled: !statusOk }, "Test memory")
+      h(BusyButton, {
+        className: "button mini secondary",
+        onClick: runMemoryCheck,
+        disabled: !statusOk,
+        busy: busyAction === "memory-check",
+        label: "Test memory",
+        busyLabel: "Testing...",
+      })
     )
   );
 }
@@ -445,6 +483,7 @@ function RememberView(props) {
     const file = event.target.files?.[0];
     if (!file) return;
     props.setNotice("Reading report...");
+    props.setBusyAction("upload");
     const memoryDatetime = props.showMemoryDate ? props.currentDatetime : localDateTimeInputValue();
     if (!props.showMemoryDate) props.setCurrentDatetime(memoryDatetime);
     const formData = new FormData();
@@ -459,19 +498,29 @@ function RememberView(props) {
     } catch (error) {
       props.setNotice(friendlyError(error));
     } finally {
+      props.setBusyAction(null);
       event.target.value = "";
     }
   }
 
+  const previewBusy = props.busyAction === "preview";
+  const saveBusy = props.busyAction === "save";
+  const uploadBusy = props.busyAction === "upload";
   return h("div", { className: "view-grid" },
-    h("section", { className: "surface primary" },
+    h("section", { className: `surface primary ${previewBusy || uploadBusy ? "working" : ""}` },
       h("div", { className: "section-head" },
         h("div", null, h("h3", null, "Add memory"), h("p", null, "Nothing saves until you confirm.")),
         h("span", { className: "pill accent" }, props.subject.name)
       ),
       h("div", { className: "capture-row" },
         h(VoiceButton, { label: "Speak memory", onTranscript: props.setLog }),
-        h("button", { className: "button secondary", onClick: () => fileInput.current?.click() }, "Upload report"),
+        h(BusyButton, {
+          className: "button secondary",
+          onClick: () => fileInput.current?.click(),
+          busy: uploadBusy,
+          label: "Upload report",
+          busyLabel: "Reading...",
+        }),
         h("input", {
           ref: fileInput,
           type: "file",
@@ -491,12 +540,19 @@ function RememberView(props) {
         h("div", null, h("label", null, "Quick sample"), h("select", { value: props.log, onChange: (e) => props.setLog(e.target.value) }, samples[props.persona].map((sample) => h("option", { key: sample, value: sample }, sample))))
       ),
       h("div", { className: "actions" },
-        h("button", { className: "button", onClick: props.previewLog }, "Preview"),
-        h("button", { className: "button secondary", onClick: () => { props.setPreview([]); props.setPreviewQuality([]); props.setPreviewSelected([]); } }, "Clear")
+        h(BusyButton, {
+          className: "button",
+          onClick: props.previewLog,
+          busy: previewBusy,
+          label: "Preview",
+          busyLabel: "Structuring...",
+        }),
+        h("button", { className: "button secondary", disabled: previewBusy || saveBusy || uploadBusy, onClick: () => { props.setPreview([]); props.setPreviewQuality([]); props.setPreviewSelected([]); } }, "Clear")
       )
     ),
-    h("section", { className: "surface" },
+    h("section", { className: `surface ${saveBusy ? "working" : ""}` },
       h("div", { className: "section-head" }, h("div", null, h("h3", null, "Confirm cards"), h("p", null, "Edit what Smriti will remember."))),
+      (previewBusy || uploadBusy) ? h(LoadingState, { text: previewBusy ? "Structuring memory cards..." : "Reading report..." }) : null,
       props.preview.length === 0
         ? h("div", { className: "empty-state" }, "Preview cards appear here.")
         : props.preview.map((memory, index) => h(PreviewCard, {
@@ -509,7 +565,14 @@ function RememberView(props) {
           updatePreview: props.updatePreview,
         })),
       h("div", { className: "actions" },
-        h("button", { className: "button", onClick: props.savePreview, disabled: props.preview.length === 0 }, "Save selected")
+        h(BusyButton, {
+          className: "button",
+          onClick: props.savePreview,
+          disabled: props.preview.length === 0,
+          busy: saveBusy,
+          label: "Save selected",
+          busyLabel: "Saving...",
+        })
       )
     )
   );
@@ -543,19 +606,35 @@ function PreviewCard({ memory, index, selected, togglePreview, quality = {}, upd
 
 function AskView(props) {
   const sourceCount = props.answer?.sources?.length || 0;
+  const askBusy = props.busyAction === "ask";
+  const evalBusy = props.busyAction === "eval";
   return h("div", { className: "view-grid" },
-    h("section", { className: "surface primary" },
+    h("section", { className: `surface primary ${askBusy ? "working" : ""}` },
       h("div", { className: "section-head" }, h("div", null, h("h3", null, "Ask Smriti"), h("p", null, "Answers use selected person and date window.")), h("span", { className: "pill accent" }, `${sourceCount} sources`)),
       h(VoiceButton, { label: "Speak question", onTranscript: props.setQuestion }),
       h("input", { value: props.question, onChange: (e) => props.setQuestion(e.target.value), placeholder: "Ask about symptoms, medicine, vitals..." }),
       h(DateFilters, props),
-      h("div", { className: "actions" }, h("button", { className: "button", onClick: props.askMemory }, "Ask")),
+      h("div", { className: "actions" }, h(BusyButton, {
+        className: "button",
+        onClick: props.askMemory,
+        busy: askBusy,
+        label: "Ask",
+        busyLabel: "Searching...",
+      })),
+      askBusy ? h(LoadingState, { text: "Searching saved memories..." }) : null,
       props.answer ? h(AnswerBlock, { answer: props.answer }) : h("div", { className: "empty-state" }, "Answer appears here.")
     ),
-    h("section", { className: "surface" },
+    h("section", { className: `surface ${evalBusy ? "working" : ""}` },
       h("div", { className: "section-head" }, h("div", null, h("h3", null, "Retrieval check"), h("p", null, "Batch-test real questions.")), h("span", { className: "pill warn" }, props.evalResult ? `${props.evalResult.pass_count}/${props.evalResult.total}` : "demo ready")),
       h("textarea", { value: props.evalText, onChange: (e) => props.setEvalText(e.target.value), placeholder: "What was Papa's BP? => 150" }),
-      h("div", { className: "actions" }, h("button", { className: "button", onClick: props.runRetrievalEval }, "Run check")),
+      h("div", { className: "actions" }, h(BusyButton, {
+        className: "button",
+        onClick: props.runRetrievalEval,
+        busy: evalBusy,
+        label: "Run check",
+        busyLabel: "Checking...",
+      })),
+      evalBusy ? h(LoadingState, { text: "Checking retrieval quality..." }) : null,
       props.evalResult ? h(EvalResults, { result: props.evalResult }) : h("div", { className: "empty-state" }, "Run the check to see pass/fail and top match."),
       h(AdvancedRetrieval, props)
     )
@@ -634,11 +713,19 @@ function EvalResults({ result }) {
 }
 
 function HistoryView(props) {
-  return h("section", { className: "surface wide-surface" },
+  const historyBusy = props.busyAction === "history";
+  return h("section", { className: `surface wide-surface ${historyBusy ? "working" : ""}` },
     h("div", { className: "section-head" },
       h("div", null, h("h3", null, "Timeline"), h("p", null, "View, edit, or delete saved memories.")),
-      h("button", { className: "button ghost", onClick: () => props.loadHistory(props.persona, props.subject.id) }, "Refresh")
+      h(BusyButton, {
+        className: "button ghost",
+        onClick: () => props.loadHistory(props.persona, props.subject.id),
+        busy: historyBusy,
+        label: "Refresh",
+        busyLabel: "Loading...",
+      })
     ),
+    historyBusy ? h(LoadingState, { text: "Loading timeline..." }) : null,
     props.history.length === 0 ? h("div", { className: "empty-state" }, "No saved memories loaded yet.") :
       h("div", { className: "timeline-list" }, props.history.map((memory) => h(HistoryItem, { key: memory.id || `${memory.text}-${memory.occurred_at}`, memory, ...props })))
   );
@@ -666,14 +753,43 @@ function EditForm({ draft, setDraft, saveEdit, cancel }) {
 }
 
 function SummaryView(props) {
-  return h("section", { className: "surface wide-surface" },
+  const summaryBusy = props.busyAction === "summary";
+  return h("section", { className: `surface wide-surface ${summaryBusy ? "working" : ""}` },
     h("div", { className: "section-head" }, h("div", null, h("h3", null, "Visit summary"), h("p", null, "Generate recorded facts for a doctor visit.")), h("span", { className: "pill warn" }, `${props.summary?.sources?.length || 0} sources`)),
     h("div", { className: "two-col" },
       h("div", null, h("label", null, "From date"), h("input", { type: "date", value: props.summaryFromDate, onChange: (e) => props.setSummaryFromDate(e.target.value) })),
       h("div", null, h("label", null, "To date"), h("input", { type: "date", value: props.summaryToDate, onChange: (e) => props.setSummaryToDate(e.target.value) }))
     ),
-    h("div", { className: "actions" }, h("button", { className: "button", onClick: props.generateSummary }, "Generate summary"), h("button", { className: "button secondary", onClick: props.copySummary, disabled: !props.summary }, "Copy")),
+    h("div", { className: "actions" },
+      h(BusyButton, {
+        className: "button",
+        onClick: props.generateSummary,
+        busy: summaryBusy,
+        label: "Generate summary",
+        busyLabel: "Generating...",
+      }),
+      h("button", { className: "button secondary", onClick: props.copySummary, disabled: !props.summary || summaryBusy }, "Copy")
+    ),
+    summaryBusy ? h(LoadingState, { text: "Preparing visit summary..." }) : null,
     props.summary ? h("div", { className: "answer-block" }, h("p", null, props.summary.summary), h("div", { className: "source-list" }, props.summary.sources.map((source) => h("div", { className: "source", key: source.id || source.text }, h("small", null, displayDateTime(source.occurred_at)), h("div", null, source.text))))) : h("div", { className: "empty-state" }, "Choose a date range and generate a visit summary.")
+  );
+}
+
+function BusyButton({ className, onClick, busy, disabled, label, busyLabel }) {
+  return h("button", {
+    className: `${className || "button"} ${busy ? "is-busy" : ""}`,
+    onClick,
+    disabled: disabled || busy,
+  },
+    busy ? h("span", { className: "spinner", "aria-hidden": "true" }) : null,
+    busy ? busyLabel : label
+  );
+}
+
+function LoadingState({ text }) {
+  return h("div", { className: "loading-state" },
+    h("span", { className: "spinner", "aria-hidden": "true" }),
+    h("span", null, text)
   );
 }
 
