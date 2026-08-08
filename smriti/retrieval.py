@@ -22,6 +22,17 @@ SYNONYMS = {
     "appetite": {"appetite", "hunger", "bhook"},
     "urine": {"urine", "pee", "urination", "peshab"},
     "bowel": {"bowel", "stool", "constipation", "loose", "motion"},
+    # Dizziness cluster — covers Hindi (chakkar) and all English spellings
+    "dizzy": {"dizzy", "dizziness", "giddy", "giddiness", "vertigo", "chakkar", "chakker", "sir ghoom", "ghoom", "spinning"},
+    "dizziness": {"dizzy", "dizziness", "giddy", "giddiness", "vertigo", "chakkar", "chakker", "sir ghoom", "ghoom", "spinning"},
+    "chakkar": {"dizzy", "dizziness", "chakkar", "chakker", "sir ghoom", "ghoom", "vertigo"},
+    # Fall cluster
+    "fall": {"fall", "fell", "fallen", "gira", "giri", "gir", "slipped", "girane"},
+    "fell": {"fall", "fell", "fallen", "gira", "giri", "gir", "slipped"},
+    # Mood cluster
+    "mood": {"mood", "feeling", "feel", "feels", "mahsoos", "kaise", "kaisi", "theek", "accha", "bura"},
+    # Said/told cluster — for "she said her head was spinning" style queries
+    "said": {"mentioned", "said", "told", "boli", "bataya"},
 }
 
 STOPWORDS = {
@@ -35,6 +46,8 @@ STOPWORDS = {
     "had",
     "has",
     "have",
+    "her",
+    "him",
     "his",
     "is",
     "it",
@@ -42,9 +55,12 @@ STOPWORDS = {
     "kya",
     "ko",
     "me",
+    "mention",
+    "mentioned",
     "my",
     "of",
     "papa",
+    "she",
     "the",
     "tha",
     "that",
@@ -56,9 +72,10 @@ STOPWORDS = {
 
 TYPE_HINTS = {
     "vital": {"bp", "blood", "pressure", "sugar", "glucose", "pulse", "oxygen", "spo2", "temperature", "temp", "fever"},
-    "medication": {"medicine", "medication", "tablet", "dose", "pill", "dawa"},
-    "symptom": {"pain", "ache", "sleep", "neend", "fever", "cough", "dizzy", "swelling", "breathing", "appetite", "urine", "bowel"},
+    "medication": {"medicine", "medication", "tablet", "dose", "pill", "dawa", "missed", "skipped", "forgot"},
+    "symptom": {"pain", "ache", "sleep", "neend", "fever", "cough", "dizzy", "dizziness", "chakkar", "swelling", "breathing", "appetite", "urine", "bowel", "vertigo", "giddiness"},
     "visit": {"doctor", "dr", "visit", "appointment", "consult"},
+    "remark": {"mentioned", "said", "told", "quote", "boli", "bataya"},
 }
 
 
