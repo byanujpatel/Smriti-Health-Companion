@@ -93,9 +93,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):  # noqa: ARG001
-        # startup: register Telegram webhook if bot + webhook URL are configured
+        # startup
         bot_app = _ctx["bot_app"]
         cfg = _ctx["settings"]
+
+        # Must initialize the Application before process_update works in webhook mode
+        if bot_app:
+            await bot_app.initialize()
+            logger.info("Telegram bot application initialized")
+
+        # Register webhook URL with Telegram
         if bot_app and cfg and cfg.webhook_url:
             webhook_target = f"{cfg.webhook_url.rstrip('/')}/telegram"
             try:
@@ -107,7 +114,9 @@ def create_app(
             except Exception as exc:
                 logger.warning("Could not set Telegram webhook: %s", exc)
         yield
-        # shutdown (nothing to do)
+        # shutdown
+        if bot_app:
+            await bot_app.shutdown()
 
     app = FastAPI(title="Smriti API", version="0.1.0", lifespan=lifespan)
     if (FRONTEND_DIR / "src").exists():
