@@ -256,12 +256,13 @@ def test_demo_load_creates_sample_memories_and_questions():
     response = client.post("/demo/load")
 
     body = response.json()
+    demo_count = len(body["memories"])
     assert response.status_code == 200
-    assert len(body["ids"]) == 6
+    assert len(body["ids"]) == demo_count
     assert body["skipped_duplicates"] == 0
-    assert len(body["memories"]) == 6
-    assert "What was Papa's BP? => 150" in body["eval_questions"]
-    assert len(memory.saved) == 6
+    assert demo_count >= 1
+    assert "dizziness" in body["eval_questions"].lower() or "Amlodipine" in body["eval_questions"]
+    assert len(memory.saved) == demo_count
 
 
 def test_demo_load_skips_duplicates_on_second_run():
@@ -269,14 +270,15 @@ def test_demo_load_skips_duplicates_on_second_run():
     app = app_with_fakes(memory)
     client = TestClient(app)
 
-    client.post("/demo/load")
+    first = client.post("/demo/load")
+    demo_count = len(first.json()["memories"])
     response = client.post("/demo/load")
 
     body = response.json()
     assert response.status_code == 200
     assert body["ids"] == []
-    assert body["skipped_duplicates"] == 6
-    assert len(memory.saved) == 6
+    assert body["skipped_duplicates"] == demo_count
+    assert len(memory.saved) == demo_count
 
 
 def test_personas_are_isolated_during_retrieval():

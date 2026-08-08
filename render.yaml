@@ -13,7 +13,19 @@ services:
         value: whisper-large-v3-turbo
       - key: GROQ_VISION_MODEL
         value: meta-llama/llama-4-scout-17b-16e-instruct
+      - key: SUPERMEMORY_BASE_URL
+        value: https://api.supermemory.ai
       - key: SUPERMEMORY_API_KEY
         sync: false
       - key: GROQ_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: ALERT_EMAIL
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
         sync: false

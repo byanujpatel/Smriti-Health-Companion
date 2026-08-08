@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     groq_stt_model: str = "whisper-large-v3-turbo"
     groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    telegram_bot_token: str | None = None
+    webhook_url: str | None = None
+    alert_email: str | None = None
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

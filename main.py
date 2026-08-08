@@ -1,15 +1,23 @@
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from time import sleep
+import logging
+import smtplib
+from email.mime.text import MIMEText
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from supermemory import APIConnectionError, APIStatusError
 
+logger = logging.getLogger(__name__)
+
 from smriti.clients.llm import (
     create_answerer,
+    create_checkin_structurer,
+    create_pattern_detector,
     create_structurer,
     create_summarizer,
     create_transcriber,
@@ -20,10 +28,14 @@ from smriti.config import get_settings
 from smriti.models import (
     AskRequest,
     AskResponse,
+    CheckInRequest,
+    CheckInResponse,
     DemoLoadResponse,
     MemoryEntry,
     MemoryBatch,
     MemoryCheckResponse,
+    PatternRequest,
+    PatternsResponse,
     PreviewRequest,
     PreviewResponse,
     RetrievalEvalRequest,
@@ -73,8 +85,31 @@ def create_app(
     summarizer: SummaryProvider | None = None,
     transcriber: STTProvider | None = None,
     document_extractor=None,
+    checkin_structurer=None,
+    pattern_detector=None,
 ) -> FastAPI:
-    app = FastAPI(title="Smriti API", version="0.1.0")
+    # Mutable containers so inner functions can mutate them without nonlocal
+    _ctx: dict = {"settings": None, "bot_app": None}
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):  # noqa: ARG001
+        # startup: register Telegram webhook if bot + webhook URL are configured
+        bot_app = _ctx["bot_app"]
+        cfg = _ctx["settings"]
+        if bot_app and cfg and cfg.webhook_url:
+            webhook_target = f"{cfg.webhook_url.rstrip('/')}/telegram"
+            try:
+                await bot_app.bot.set_webhook(
+                    url=webhook_target,
+                    allowed_updates=["message", "callback_query"],
+                )
+                logger.info("Telegram webhook set → %s", webhook_target)
+            except Exception as exc:
+                logger.warning("Could not set Telegram webhook: %s", exc)
+        yield
+        # shutdown (nothing to do)
+
+    app = FastAPI(title="Smriti API", version="0.1.0", lifespan=lifespan)
     if (FRONTEND_DIR / "src").exists():
         app.mount(
             "/assets",
@@ -102,6 +137,9 @@ def create_app(
         document_extractor = document_extractor or DocumentExtractor(
             create_vision_extractor(settings)
         )
+        checkin_structurer = checkin_structurer or create_checkin_structurer(settings)
+        pattern_detector = pattern_detector or create_pattern_detector(settings)
+        _ctx["settings"] = settings
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -465,6 +503,46 @@ def create_app(
             date_window=request.date_window_label(),
         )
 
+    @app.post("/checkin", response_model=CheckInResponse, status_code=status.HTTP_201_CREATED)
+    def checkin(request: CheckInRequest) -> CheckInResponse:
+        checkin_summary, memories = checkin_structurer.structure_checkin(
+            transcript=request.transcript,
+            subject_name=request.subject_name,
+            now=request.current_datetime,
+        )
+        for entry in memories:
+            entry.subject_id = request.subject_id
+            entry.subject_name = request.subject_name
+            entry = MemoryEntry.model_validate(entry.model_dump())
+        try:
+            ids, _skipped = save_unique_memories(memory, memories)
+        except (APIConnectionError, APIStatusError, httpx.HTTPError) as error:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Supermemory rejected the check-in save. Check memory mode and API key.",
+            ) from error
+        return CheckInResponse(summary=checkin_summary, memories=memories, saved_ids=ids)
+
+    @app.post("/patterns", response_model=PatternsResponse)
+    def get_patterns(request: PatternRequest) -> PatternsResponse:
+        cutoff = datetime.now().astimezone() - timedelta(days=request.days)
+        try:
+            all_memories = memory.list(Persona.CARE, limit=200, subject_id=request.subject_id)
+        except (APIConnectionError, APIStatusError, httpx.HTTPError) as error:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Supermemory rejected the pattern request. Check memory mode and API key.",
+            ) from error
+        recent = [m for m in all_memories if m.occurred_at >= cutoff]
+        if not recent:
+            return PatternsResponse(
+                patterns=[],
+                date_range=f"last {request.days} days",
+            )
+        date_range = f"last {request.days} days"
+        patterns = pattern_detector.detect_patterns(recent, date_range)
+        return PatternsResponse(patterns=patterns, date_range=date_range)
+
     @app.post("/voice/transcribe", response_model=TranscriptionResponse)
     def transcribe_voice(audio: UploadFile = File(...)) -> TranscriptionResponse:
         if not audio.content_type or not audio.content_type.startswith("audio/"):
@@ -491,6 +569,86 @@ def create_app(
             )
         return TranscriptionResponse(text=text)
 
+    # ── Caregiver Dashboard ────────────────────────────────────────────────────
+
+    @app.get("/api/dashboard/{subject_id}")
+    def get_dashboard(subject_id: str) -> dict:
+        """Caregiver summary: recent memories, flags, urgency for a parent."""
+        try:
+            all_memories = memory.list(Persona.CARE, limit=100, subject_id=subject_id)
+        except (APIConnectionError, APIStatusError, httpx.HTTPError):
+            all_memories = []
+
+        all_memories = sorted(all_memories, key=lambda m: m.occurred_at, reverse=True)
+
+        last_checkin_at = all_memories[0].occurred_at.isoformat() if all_memories else None
+        flags = _extract_flags(all_memories[:15])
+        urgency = _score_urgency(all_memories[:15])
+
+        recent = [
+            {
+                "id": m.id,
+                "text": m.text,
+                "type": m.type,
+                "occurred_at": m.occurred_at.isoformat(),
+            }
+            for m in all_memories[:12]
+        ]
+
+        return {
+            "subject_id": subject_id,
+            "last_checkin_at": last_checkin_at,
+            "memory_count": len(all_memories),
+            "flags": flags,
+            "urgency": urgency,
+            "recent_memories": recent,
+        }
+
+    # ── Emergency Alert ────────────────────────────────────────────────────────
+
+    @app.post("/api/emergency")
+    def emergency_alert(
+        subject_id: str = Form(...),
+        subject_name: str = Form(...),
+        message: str = Form(default="Emergency alert triggered"),
+    ) -> dict:
+        """Log an emergency memory and optionally send an alert email."""
+        entry = MemoryEntry(
+            text=f"EMERGENCY: {message}",
+            type="remark",
+            persona=Persona.CARE,
+            subject_id=subject_id,
+            subject_name=subject_name,
+            occurred_at=datetime.now().astimezone(),
+            entities={"urgency": "emergency", "source": "web"},
+            raw=message,
+        )
+        try:
+            save_unique_memories(memory, [entry])
+        except (APIConnectionError, APIStatusError, httpx.HTTPError):
+            pass  # Log failure silently — alert message is more important
+
+        if settings and settings.alert_email:
+            _send_emergency_email(subject_name, message, settings.alert_email, settings)
+
+        return {"status": "alert_sent", "subject_name": subject_name}
+
+    # ── Telegram Webhook ──────────────────────────────────────────────────────
+
+    if settings and settings.telegram_bot_token:
+        from telegram import Update as TgUpdate
+        from telegram_bot import build_bot_app as _build_bot
+
+        _bot_app = _build_bot(settings.telegram_bot_token)
+        _ctx["bot_app"] = _bot_app
+
+        @app.post("/telegram")
+        async def telegram_webhook(request: Request) -> dict:
+            data = await request.json()
+            update = TgUpdate.de_json(data, _bot_app.bot)
+            await _bot_app.process_update(update)
+            return {"ok": True}
+
     return app
 
 
@@ -499,6 +657,80 @@ def _home_html() -> str:
     if index.exists():
         return index.read_text(encoding="utf-8")
     return "<!doctype html><title>Smriti</title><h1>Smriti</h1><p>Frontend not found.</p>"
+
+
+# ── Dashboard helpers (module-level so they can be tested) ────────────────────
+
+_FLAG_RULES = [
+    ("dizziness",     ["dizzi", "chakkar", "chakker", "giddiness", "vertigo", "sir ghoom"]),
+    ("missed_medicine", ["missed", "nahi li", "bhool", "forgot medicine", "skipped", "dawa nahi"]),
+    ("pain",          ["dard", " pain", "ache", "tez dard", "chest pain", "seene mein"]),
+    ("fall",          ["gir ", "fell", "fall", " gira", "slipped", "girane"]),
+    ("poor_sleep",    ["neend nahi", "insomnia", "nahi soyi", "couldn't sleep", "so nahi"]),
+    ("bp_elevated",   ["bp high", "bp 15", "bp 16", "bp 17", "bp 18", "blood pressure high"]),
+]
+
+
+def _extract_flags(memories: list) -> list[dict]:
+    """Rule-based flag extraction from recent memories. No LLM — instant."""
+    seen: set[str] = set()
+    flags = []
+    for m in memories:
+        combined = (m.text + " " + m.raw).lower()
+        for flag_name, keywords in _FLAG_RULES:
+            if flag_name not in seen and any(k in combined for k in keywords):
+                seen.add(flag_name)
+                flags.append({
+                    "flag": flag_name,
+                    "label": flag_name.replace("_", " ").title(),
+                    "from_memory": m.text[:80],
+                    "date": m.occurred_at.isoformat(),
+                })
+    return flags
+
+
+def _score_urgency(memories: list) -> dict:
+    """Rule-based urgency score 1-5. No LLM — instant."""
+    score = 1
+    reasons: list[str] = []
+    for m in memories:
+        t = (m.text + " " + m.raw).lower()
+        if any(k in t for k in ["chest pain", "breathing", "saans nahi", "emergency", "gir gayi", "gir gaya"]):
+            score = max(score, 5)
+            reasons.append("Serious symptom or emergency")
+        elif any(k in t for k in ["chakkar", "dizzi", "gira", "fell", "bp 15", "bp 16", "bp 17", "bp 18"]):
+            score = max(score, 3)
+            reasons.append("Attention needed")
+        elif any(k in t for k in ["missed", "bhool", "nahi li", "skipped"]):
+            score = max(score, 2)
+            reasons.append("Missed medicine")
+    level = {1: "green", 2: "blue", 3: "yellow", 4: "orange", 5: "red"}.get(min(score, 5), "green")
+    return {"score": score, "level": level, "reasons": list(dict.fromkeys(reasons))}
+
+
+def _send_emergency_email(subject_name: str, message: str, to_email: str, settings) -> None:
+    """Send a plain-text emergency email via Gmail SMTP. Silent on failure."""
+    smtp_user = settings.smtp_user
+    smtp_pass = settings.smtp_pass
+    if not smtp_user or not smtp_pass:
+        return
+    try:
+        body = (
+            f"SMRITI EMERGENCY ALERT\n\n"
+            f"{subject_name} needs attention.\n"
+            f"Message: {message}\n"
+            f"Time: {datetime.now().strftime('%d %b %Y, %I:%M %p')}\n\n"
+            f"Open Smriti to view full memory timeline."
+        )
+        msg = MIMEText(body)
+        msg["Subject"] = f"🆘 Smriti Emergency: {subject_name}"
+        msg["From"] = smtp_user
+        msg["To"] = to_email
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.send_message(msg)
+    except Exception as exc:
+        logger.warning("Emergency email failed: %s", exc)
 
 
 app = create_app()

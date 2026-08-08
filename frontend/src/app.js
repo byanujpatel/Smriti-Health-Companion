@@ -1,832 +1,779 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, friendlyError } from "./api.js";
-import { defaultSubjects, memoryTypes, samples } from "./constants.js";
-import { displayDateTime, isoDate, localDateTimeInputValue, toApiDateTime } from "./time.js";
 import { VoiceButton } from "./voice.js";
+import { api, friendlyError } from "./api.js";
 
 const h = React.createElement;
-const SUBJECTS_STORAGE_KEY = "smriti.subjects";
+const { useState, useEffect, useRef } = React;
 
-function App() {
-  const [subjects, setSubjects] = useState(loadSubjects);
-  const [subject, setSubject] = useState(() => loadSubjects()[0]);
-  const [newSubjectName, setNewSubjectName] = useState("");
-  const [newSubjectPersona, setNewSubjectPersona] = useState("care");
-  const persona = subject.persona;
-  const [status, setStatus] = useState(null);
-  const [memoryCheck, setMemoryCheck] = useState(null);
-  const [notice, setNotice] = useState("Ready");
-  const [busyAction, setBusyAction] = useState(null);
-  const [activeView, setActiveView] = useState("remember");
-  const [log, setLog] = useState(samples.care[0]);
-  const [currentDatetime, setCurrentDatetime] = useState(localDateTimeInputValue());
-  const [showMemoryDate, setShowMemoryDate] = useState(false);
-  const [preview, setPreview] = useState([]);
-  const [previewSelected, setPreviewSelected] = useState([]);
-  const [previewQuality, setPreviewQuality] = useState([]);
-  const [question, setQuestion] = useState("What was Papa's BP?");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [answer, setAnswer] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [editDraft, setEditDraft] = useState(null);
-  const [summary, setSummary] = useState(null);
-  const [summaryFromDate, setSummaryFromDate] = useState("");
-  const [summaryToDate, setSummaryToDate] = useState("");
-  const [evalText, setEvalText] = useState("What was Papa's BP? => 150\nWhen did Papa sleep badly? => poor sleep");
-  const [evalResult, setEvalResult] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [searchThreshold, setSearchThreshold] = useState(0.30);
-  const [searchLimit, setSearchLimit] = useState(50);
-  const [rerank, setRerank] = useState(true);
-  const [acceptThreshold, setAcceptThreshold] = useState(0.45);
-  const [maybeThreshold, setMaybeThreshold] = useState(0.30);
+const PROFILE_KEY = "smriti.profile.v2";
 
-  const statusOk = status?.api === "ok" && status?.supermemory === "ok" && status?.groq === "configured";
-  const activeTitle = `${subject.name} memory`;
+// ── Persistence ───────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    refreshStatus();
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjects));
-  }, [subjects]);
-
-  useEffect(() => {
-    setLog(samples[subject.persona][0]);
-    setPreview([]);
-    setPreviewSelected([]);
-    setPreviewQuality([]);
-    setAnswer(null);
-    setSummary(null);
-    setEditingId(null);
-    setEditDraft(null);
-    loadHistory(subject.persona, subject.id);
-  }, [subject]);
-
-  async function refreshStatus() {
-    try {
-      setStatus(await api.status());
-    } catch (error) {
-      setStatus({ api: "error", supermemory: "unknown", groq: "unknown" });
-      setNotice(friendlyError(error));
-    }
-  }
-
-  async function runMemoryCheck() {
-    setNotice("Testing memory save, search, cleanup...");
-    setBusyAction("memory-check");
-    setMemoryCheck(null);
-    try {
-      const data = await api.memoryCheck();
-      setMemoryCheck(data);
-      const ok = data.save_ok && data.search_ok && data.cleanup_ok;
-      setNotice(ok ? "Memory round-trip passed" : "Memory round-trip needs attention");
-    } catch (error) {
-      setMemoryCheck({ save_ok: false, search_ok: false, cleanup_ok: false, detail: friendlyError(error) });
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function loadHistory(nextPersona = persona, nextSubjectId = subject.id) {
-    setNotice("Loading memories...");
-    setBusyAction("history");
-    try {
-      const data = await api.listMemories(nextPersona, nextSubjectId);
-      setHistory(data);
-      setNotice(`Loaded ${data.length} memories`);
-    } catch (error) {
-      setHistory([]);
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function previewLog() {
-    setNotice("Structuring memory...");
-    setBusyAction("preview");
-    const memoryDatetime = showMemoryDate ? currentDatetime : localDateTimeInputValue();
-    if (!showMemoryDate) setCurrentDatetime(memoryDatetime);
-    try {
-      const data = await api.preview({
-        text: log,
-        persona,
-        subject_id: subject.id,
-        subject_name: subject.name,
-        current_datetime: toApiDateTime(memoryDatetime),
-      });
-      setPreview(data.memories);
-      setPreviewSelected(data.memories.map(() => true));
-      setPreviewQuality(data.quality || []);
-      setNotice(data.memories.length ? `Preview ready: ${data.memories.length} card(s)` : "No health memory found");
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function savePreview() {
-    const selectedMemories = preview.filter((_, index) => previewSelected[index] !== false);
-    if (!selectedMemories.length) {
-      setNotice("Select at least one card to save.");
-      return;
-    }
-    setNotice("Saving memory...");
-    setBusyAction("save");
-    try {
-      const data = await api.saveMemories(selectedMemories);
-      setNotice(`Saved ${data.ids.length} memory${data.skipped_duplicates ? `, skipped ${data.skipped_duplicates} duplicate` : ""}`);
-      setPreview([]);
-      setPreviewSelected([]);
-      setPreviewQuality([]);
-      setTimeout(() => loadHistory(persona, subject.id), 1000);
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function askMemory() {
-    setNotice("Searching memory...");
-    setBusyAction("ask");
-    try {
-      const data = await api.ask(retrievalBody({ question, persona, subject_id: subject.id }));
-      setAnswer(data);
-      setNotice("Answer ready");
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function runRetrievalEval() {
-    setNotice("Checking retrieval...");
-    const cases = evalText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [q, expected] = line.split("=>").map((part) => part.trim());
-        return { question: q, expected_contains: expected || null };
-      })
-      .filter((item) => item.question);
-    if (!cases.length) {
-      setNotice("Add at least one eval question.");
-      return;
-    }
-    try {
-      setBusyAction("eval");
-      const data = await api.evalRetrieval(retrievalBody({ persona, subject_id: subject.id, cases }));
-      setEvalResult(data);
-      setNotice(`Retrieval check: ${data.pass_count} pass, ${data.fail_count} fail`);
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  function retrievalBody(base) {
-    const accepted = Number(acceptThreshold);
-    const maybe = Math.min(Number(maybeThreshold), accepted);
-    const body = {
-      ...base,
-      search_threshold: Number(searchThreshold),
-      search_limit: Number(searchLimit),
-      rerank,
-      accept_threshold: accepted,
-      maybe_threshold: maybe,
-    };
-    if (fromDate) body.from_date = fromDate;
-    if (toDate) body.to_date = toDate;
-    return body;
-  }
-
-  async function generateSummary() {
-    setNotice("Generating visit summary...");
-    setBusyAction("summary");
-    const body = { persona, subject_id: subject.id };
-    if (summaryFromDate) body.from_date = summaryFromDate;
-    if (summaryToDate) body.to_date = summaryToDate;
-    try {
-      setSummary(await api.summary(body));
-      setNotice("Visit summary ready");
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function copySummary() {
-    if (!summary) return;
-    await navigator.clipboard.writeText(summary.summary);
-    setNotice("Summary copied");
-  }
-
-  async function loadDemo() {
-    setNotice("Loading demo memories...");
-    setBusyAction("demo");
-    try {
-      const data = await api.loadDemo();
-      setFromDate("");
-      setToDate("");
-      setQuestion("What was Papa's BP?");
-      setEvalText(data.eval_questions);
-      setActiveView("ask");
-      setAnswer(null);
-      setEvalResult(null);
-      setNotice(`Demo ready: saved ${data.ids.length}, skipped ${data.skipped_duplicates} duplicate${data.skipped_duplicates === 1 ? "" : "s"}`);
-      setSubject(subjects.find((item) => item.id === "papa") || subjects[0]);
-      setTimeout(() => loadHistory("care", "papa"), 1000);
-    } catch (error) {
-      setNotice(friendlyError(error));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function deleteMemory(id) {
-    if (!confirm("Delete this saved memory?")) return;
-    await api.deleteMemory(id);
-    setHistory((items) => items.filter((item) => item.id !== id));
-    setNotice("Memory deleted");
-  }
-
-  async function saveEdit() {
-    const body = {
-      text: editDraft.text,
-      type: editDraft.type,
-      persona: editDraft.persona,
-      subject_id: editDraft.subject_id,
-      subject_name: editDraft.subject_name,
-      occurred_at: editDraft.occurred_at,
-      entities: editDraft.entities || {},
-      raw: editDraft.raw || editDraft.text,
-    };
-    const updated = await api.updateMemory(editingId, body);
-    setHistory((items) => items.map((item) => item.id === editingId ? updated : item));
-    setEditingId(null);
-    setEditDraft(null);
-    setNotice("Memory updated");
-  }
-
-  function setRange(kind) {
-    const today = new Date();
-    const start = new Date(today);
-    if (kind === "today") {
-      setFromDate(isoDate(today));
-      setToDate(isoDate(today));
-    }
-    if (kind === "yesterday") {
-      start.setDate(today.getDate() - 1);
-      setFromDate(isoDate(start));
-      setToDate(isoDate(start));
-    }
-    if (kind === "last7") {
-      start.setDate(today.getDate() - 6);
-      setFromDate(isoDate(start));
-      setToDate(isoDate(today));
-    }
-    if (kind === "clear") {
-      setFromDate("");
-      setToDate("");
-    }
-  }
-
-  function updatePreview(index, key, value) {
-    setPreview((items) => items.map((item, current) => current === index ? { ...item, [key]: value } : item));
-  }
-
-  function setPreviewFromUpload(data) {
-    setPreview(data.memories);
-    setPreviewSelected(data.memories.map(() => true));
-    setPreviewQuality(data.quality || []);
-    setNotice(data.memories.length ? `Upload preview ready: ${data.memories.length} card(s)` : "No readable health facts found");
-  }
-
-  function togglePreview(index) {
-    setPreviewSelected((items) => items.map((item, current) => current === index ? !item : item));
-  }
-
-  function addSubject() {
-    const name = newSubjectName.trim();
-    if (!name) {
-      setNotice("Enter a person name.");
-      return;
-    }
-    const id = uniqueSubjectId(slugify(name), subjects);
-    const nextSubject = { id, name, persona: newSubjectPersona };
-    setSubjects((items) => [...items, nextSubject]);
-    setSubject(nextSubject);
-    setNewSubjectName("");
-    setNotice(`Added ${name}`);
-  }
-
-  const views = [
-    ["remember", "Remember"],
-    ["ask", "Ask"],
-    ["history", "Timeline"],
-    ["summary", "Summary"],
-  ];
-
-  return h("div", { className: "app-shell" },
-    h("aside", { className: "sidebar" },
-      h("div", { className: "brand-lockup" },
-        h("div", { className: "brand-mark" }, "S"),
-        h("div", null,
-          h("h1", null, "Smriti"),
-          h("p", null, "Health memory you can trust later.")
-        )
-      ),
-      h("div", { className: "persona-card" },
-        h("span", { className: "eyebrow" }, "Person"),
-        h("div", { className: "segmented" },
-          subjects.map((item) =>
-            h("button", {
-              key: item.id,
-              className: subject.id === item.id ? "active" : "",
-              onClick: () => setSubject(item),
-            }, item.name)
-          )
-        ),
-        h("div", { className: "add-person" },
-          h("input", {
-            value: newSubjectName,
-            onChange: (event) => setNewSubjectName(event.target.value),
-            onKeyDown: (event) => {
-              if (event.key === "Enter") addSubject();
-            },
-            placeholder: "Add anyone...",
-          }),
-          h("select", {
-            value: newSubjectPersona,
-            onChange: (event) => setNewSubjectPersona(event.target.value),
-          },
-            h("option", { value: "care" }, "Care"),
-            h("option", { value: "self" }, "Self")
-          ),
-          h("button", { className: "button mini secondary", onClick: addSubject }, "+ Add person")
-        )
-      ),
-      h("nav", { className: "nav-list" },
-        views.map(([id, label]) =>
-          h("button", {
-            key: id,
-            className: activeView === id ? "active" : "",
-            onClick: () => setActiveView(id),
-          }, label)
-        )
-      ),
-      h(BusyButton, {
-        className: "button ghost wide",
-        onClick: loadDemo,
-        busy: busyAction === "demo",
-        label: "Load demo memories",
-        busyLabel: "Loading demo...",
-      }),
-      h("p", { className: "sidebar-note" }, "Demo data is local and duplicate-safe.")
-    ),
-    h("main", { className: "workspace" },
-      h("header", { className: "hero-band" },
-        h("div", null,
-          h("span", { className: "eyebrow" }, activeTitle),
-          h("h2", null, "Say it once. Find it when it matters."),
-          h("p", null, "Capture care notes by voice or text, confirm the exact memory, then ask from a dated timeline.")
-        ),
-        h(StatusBadge, { status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck, busyAction })
-      ),
-      h("section", { className: "flow-strip" },
-        ["Speak or type", "Confirm memory", "Ask later"].map((step, index) =>
-          h("div", { className: "flow-step", key: step },
-            h("span", null, index + 1),
-            h("strong", null, step)
-          )
-        )
-      ),
-      activeView === "remember" && h(RememberView, {
-        persona, subject, log, setLog, currentDatetime, setCurrentDatetime, showMemoryDate,
-        setShowMemoryDate, previewLog, preview, previewQuality, updatePreview,
-        savePreview, setPreview, setPreviewQuality, setPreviewSelected,
-        previewSelected, togglePreview, setPreviewFromUpload, setNotice, busyAction, setBusyAction,
-      }),
-      activeView === "ask" && h(AskView, {
-        question, setQuestion, fromDate, setFromDate, toDate, setToDate, setRange,
-        askMemory, answer, showAdvanced, setShowAdvanced, searchThreshold,
-        setSearchThreshold, searchLimit, setSearchLimit, rerank, setRerank,
-        acceptThreshold, setAcceptThreshold, maybeThreshold, setMaybeThreshold,
-        evalText, setEvalText, evalResult, runRetrievalEval, busyAction,
-      }),
-      activeView === "history" && h(HistoryView, {
-        history, loadHistory, persona, subject, editingId, setEditingId, editDraft, busyAction,
-        setEditDraft, saveEdit, deleteMemory,
-      }),
-      activeView === "summary" && h(SummaryView, {
-        summary, summaryFromDate, setSummaryFromDate, summaryToDate,
-        setSummaryToDate, generateSummary, copySummary, busyAction,
-      })
-    )
-  );
+function loadProfile() {
+  try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || "null"); }
+  catch { return null; }
 }
-
-function StatusBadge({ status, statusOk, notice, refreshStatus, runMemoryCheck, memoryCheck, busyAction }) {
-  const mode = status?.memory_mode ? ` · ${status.memory_mode}` : "";
-  const label = statusOk
-    ? `Ready${mode} · Groq AI`
-    : status
-      ? `API ${status.api} | Memory ${status.supermemory}${mode} | Groq ${status.groq}`
-      : "Checking";
-  const checkItems = memoryCheck ? [
-    ["Save", memoryCheck.save_ok],
-    ["Search", memoryCheck.search_ok],
-    ["Cleanup", memoryCheck.cleanup_ok],
-  ] : [];
-  return h("div", { className: "status-card" },
-    h("div", { className: "status-line" },
-      h("span", { className: `status-dot ${statusOk ? "ok" : ""}` }),
-      h("strong", null, label)
-    ),
-    h("p", null, status?.memory_target ? `${notice} Memory target: ${status.memory_target}.` : notice),
-    memoryCheck && h("div", { className: "check-row" },
-      checkItems.map(([label, ok]) =>
-        h("span", { className: `pill ${ok ? "accent" : ""}`, key: label }, `${label}: ${ok ? "ok" : "fail"}`)
-      )
-    ),
-    memoryCheck?.detail && h("p", { className: "tiny-warn" }, memoryCheck.detail),
-    h("div", { className: "inline-actions tight" },
-      h("button", { className: "button mini ghost", onClick: refreshStatus }, "Refresh"),
-      h(BusyButton, {
-        className: "button mini secondary",
-        onClick: runMemoryCheck,
-        disabled: !statusOk,
-        busy: busyAction === "memory-check",
-        label: "Test memory",
-        busyLabel: "Testing...",
-      })
-    )
-  );
-}
-
-function RememberView(props) {
-  const fileInput = useRef(null);
-
-  async function uploadReport(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    props.setNotice("Reading report...");
-    props.setBusyAction("upload");
-    const memoryDatetime = props.showMemoryDate ? props.currentDatetime : localDateTimeInputValue();
-    if (!props.showMemoryDate) props.setCurrentDatetime(memoryDatetime);
-    const formData = new FormData();
-    formData.append("persona", props.persona);
-    formData.append("subject_id", props.subject.id);
-    formData.append("subject_name", props.subject.name);
-    formData.append("current_datetime", toApiDateTime(memoryDatetime));
-    formData.append("file", file);
-    try {
-      const data = await api.previewDocument(formData);
-      props.setPreviewFromUpload(data);
-    } catch (error) {
-      props.setNotice(friendlyError(error));
-    } finally {
-      props.setBusyAction(null);
-      event.target.value = "";
-    }
-  }
-
-  const previewBusy = props.busyAction === "preview";
-  const saveBusy = props.busyAction === "save";
-  const uploadBusy = props.busyAction === "upload";
-  return h("div", { className: "view-grid" },
-    h("section", { className: `surface primary ${previewBusy || uploadBusy ? "working" : ""}` },
-      h("div", { className: "section-head" },
-        h("div", null, h("h3", null, "Add memory"), h("p", null, "Nothing saves until you confirm.")),
-        h("span", { className: "pill accent" }, props.subject.name)
-      ),
-      h("div", { className: "capture-row" },
-        h(VoiceButton, { label: "Speak memory", onTranscript: props.setLog }),
-        h(BusyButton, {
-          className: "button secondary",
-          onClick: () => fileInput.current?.click(),
-          busy: uploadBusy,
-          label: "Upload report",
-          busyLabel: "Reading...",
-        }),
-        h("input", {
-          ref: fileInput,
-          type: "file",
-          className: "hidden-file",
-          accept: "application/pdf,image/png,image/jpeg,image/webp",
-          onChange: uploadReport,
-        })
-      ),
-      h("label", null, "Memory note"),
-      h("textarea", { value: props.log, onChange: (e) => props.setLog(e.target.value), placeholder: "Papa had stomach pain after dinner and took medicine." }),
-      h("div", { className: "inline-actions" },
-        h("button", { className: "button secondary", onClick: () => props.setShowMemoryDate(!props.showMemoryDate) }, props.showMemoryDate ? "Hide date" : "Advanced date"),
-        h("span", { className: "pill" }, `Saving as ${displayDateTime(props.currentDatetime)}`)
-      ),
-      props.showMemoryDate && h("div", { className: "advanced-box two-col" },
-        h("div", null, h("label", null, "Memory time"), h("input", { type: "datetime-local", value: props.currentDatetime, onChange: (e) => props.setCurrentDatetime(e.target.value) })),
-        h("div", null, h("label", null, "Quick sample"), h("select", { value: props.log, onChange: (e) => props.setLog(e.target.value) }, samples[props.persona].map((sample) => h("option", { key: sample, value: sample }, sample))))
-      ),
-      h("div", { className: "actions" },
-        h(BusyButton, {
-          className: "button",
-          onClick: props.previewLog,
-          busy: previewBusy,
-          label: "Preview",
-          busyLabel: "Structuring...",
-        }),
-        h("button", { className: "button secondary", disabled: previewBusy || saveBusy || uploadBusy, onClick: () => { props.setPreview([]); props.setPreviewQuality([]); props.setPreviewSelected([]); } }, "Clear")
-      )
-    ),
-    h("section", { className: `surface ${saveBusy ? "working" : ""}` },
-      h("div", { className: "section-head" }, h("div", null, h("h3", null, "Confirm cards"), h("p", null, "Edit what Smriti will remember."))),
-      (previewBusy || uploadBusy) ? h(LoadingState, { text: previewBusy ? "Structuring memory cards..." : "Reading report..." }) : null,
-      props.preview.length === 0
-        ? h("div", { className: "empty-state" }, "Preview cards appear here.")
-        : props.preview.map((memory, index) => h(PreviewCard, {
-          key: index,
-          memory,
-          index,
-          selected: props.previewSelected[index] !== false,
-          togglePreview: props.togglePreview,
-          quality: props.previewQuality[index],
-          updatePreview: props.updatePreview,
-        })),
-      h("div", { className: "actions" },
-        h(BusyButton, {
-          className: "button",
-          onClick: props.savePreview,
-          disabled: props.preview.length === 0,
-          busy: saveBusy,
-          label: "Save selected",
-          busyLabel: "Saving...",
-        })
-      )
-    )
-  );
-}
-
-function PreviewCard({ memory, index, selected, togglePreview, quality = {}, updatePreview }) {
-  return h("article", { className: `memory-card ${selected ? "" : "muted-card"}` },
-    h("div", { className: "memory-title" },
-      h("div", null, h("h4", null, quality.title || "Memory card"), h("p", null, memory.text)),
-      h("label", { className: "check-label" },
-        h("input", { type: "checkbox", checked: selected, onChange: () => togglePreview(index) }),
-        h("span", null, selected ? "Save" : "Skip")
-      )
-    ),
-    h("span", { className: `pill ${quality.duplicate ? "danger-soft" : "good"}` }, quality.confidence || "review"),
-    h("div", { className: "pill-row" },
-      h("span", { className: "pill accent" }, memory.subject_name || memory.subject_id || "Person"),
-      h("span", { className: "pill" }, memory.type),
-      h("span", { className: "pill" }, displayDateTime(memory.occurred_at)),
-      (quality.signals || []).map((signal) => h("span", { className: "pill", key: signal }, signal))
-    ),
-    quality.duplicate ? h("div", { className: "empty-state compact" }, "Looks already saved. Save will skip it.") : null,
-    h("label", null, "Edit text"),
-    h("textarea", { value: memory.text, onChange: (e) => updatePreview(index, "text", e.target.value) }),
-    h("div", { className: "two-col" },
-      h("div", null, h("label", null, "Type"), h("select", { value: memory.type, onChange: (e) => updatePreview(index, "type", e.target.value) }, memoryTypes.map((type) => h("option", { key: type, value: type }, type)))),
-      h("div", null, h("label", null, "Occurred at"), h("input", { type: "datetime-local", value: localDateTimeInputValue(memory.occurred_at), onChange: (e) => updatePreview(index, "occurred_at", toApiDateTime(e.target.value)) }))
-    )
-  );
-}
-
-function AskView(props) {
-  const sourceCount = props.answer?.sources?.length || 0;
-  const askBusy = props.busyAction === "ask";
-  const evalBusy = props.busyAction === "eval";
-  return h("div", { className: "view-grid" },
-    h("section", { className: `surface primary ${askBusy ? "working" : ""}` },
-      h("div", { className: "section-head" }, h("div", null, h("h3", null, "Ask Smriti"), h("p", null, "Answers use selected person and date window.")), h("span", { className: "pill accent" }, `${sourceCount} sources`)),
-      h(VoiceButton, { label: "Speak question", onTranscript: props.setQuestion }),
-      h("input", { value: props.question, onChange: (e) => props.setQuestion(e.target.value), placeholder: "Ask about symptoms, medicine, vitals..." }),
-      h(DateFilters, props),
-      h("div", { className: "actions" }, h(BusyButton, {
-        className: "button",
-        onClick: props.askMemory,
-        busy: askBusy,
-        label: "Ask",
-        busyLabel: "Searching...",
-      })),
-      askBusy ? h(LoadingState, { text: "Searching saved memories..." }) : null,
-      props.answer ? h(AnswerBlock, { answer: props.answer }) : h("div", { className: "empty-state" }, "Answer appears here.")
-    ),
-    h("section", { className: `surface ${evalBusy ? "working" : ""}` },
-      h("div", { className: "section-head" }, h("div", null, h("h3", null, "Retrieval check"), h("p", null, "Batch-test real questions.")), h("span", { className: "pill warn" }, props.evalResult ? `${props.evalResult.pass_count}/${props.evalResult.total}` : "demo ready")),
-      h("textarea", { value: props.evalText, onChange: (e) => props.setEvalText(e.target.value), placeholder: "What was Papa's BP? => 150" }),
-      h("div", { className: "actions" }, h(BusyButton, {
-        className: "button",
-        onClick: props.runRetrievalEval,
-        busy: evalBusy,
-        label: "Run check",
-        busyLabel: "Checking...",
-      })),
-      evalBusy ? h(LoadingState, { text: "Checking retrieval quality..." }) : null,
-      props.evalResult ? h(EvalResults, { result: props.evalResult }) : h("div", { className: "empty-state" }, "Run the check to see pass/fail and top match."),
-      h(AdvancedRetrieval, props)
-    )
-  );
-}
-
-function DateFilters(props) {
-  return h("div", null,
-    h("div", { className: "two-col" },
-      h("div", null, h("label", null, "From date"), h("input", { type: "date", value: props.fromDate, onChange: (e) => props.setFromDate(e.target.value) })),
-      h("div", null, h("label", null, "To date"), h("input", { type: "date", value: props.toDate, onChange: (e) => props.setToDate(e.target.value) }))
-    ),
-    h("div", { className: "inline-actions" },
-      [["today", "Today"], ["yesterday", "Yesterday"], ["last7", "Last 7 days"], ["clear", "All dates"]].map(([kind, label]) =>
-        h("button", { key: kind, className: "button mini ghost", onClick: () => props.setRange(kind) }, label)
-      )
-    )
-  );
-}
-
-function AdvancedRetrieval(props) {
-  return h("details", { className: "advanced-details" },
-    h("summary", null, "Advanced retrieval"),
-    h("div", { className: "two-col" },
-      h(Slider, { label: "Supermemory threshold", value: props.searchThreshold, min: 0, max: 1, step: 0.05, onChange: props.setSearchThreshold }),
-      h(Slider, { label: "Search limit", value: props.searchLimit, min: 1, max: 100, step: 1, onChange: props.setSearchLimit })
-    ),
-    h("div", { className: "inline-actions" }, h("button", { className: "button mini secondary", onClick: () => props.setRerank(!props.rerank) }, `Rerank ${props.rerank ? "on" : "off"}`)),
-    h("div", { className: "two-col" },
-      h(Slider, { label: "Local accept", value: props.acceptThreshold, min: 0, max: 1, step: 0.05, onChange: props.setAcceptThreshold }),
-      h(Slider, { label: "Local maybe", value: props.maybeThreshold, min: 0, max: props.acceptThreshold, step: 0.05, onChange: props.setMaybeThreshold })
-    )
-  );
-}
-
-function Slider({ label, value, min, max, step, onChange }) {
-  return h("div", null,
-    h("label", null, `${label}: ${Number(value).toFixed(step === 1 ? 0 : 2)}`),
-    h("input", { type: "range", min, max, step, value, onChange: (e) => onChange(Number(e.target.value)) })
-  );
-}
-
-function AnswerBlock({ answer }) {
-  return h("div", { className: "answer-block" },
-    h("h4", null, "Answer"),
-    h("p", null, answer.answer),
-    h("details", { className: "advanced-details" },
-      h("summary", null, "Sources and debug"),
-      h("div", { className: "source-list" }, answer.sources.map((source) => h("div", { className: "source", key: source.id || source.text }, h("small", null, displayDateTime(source.occurred_at)), h("div", null, source.text)))),
-      answer.debug ? h("div", { className: "debug" },
-        h("p", null, `Rewritten: ${answer.debug.rewritten_query}`),
-        h("p", null, `Accepted ${answer.debug.accepted_count} | Maybe ${answer.debug.maybe_count} | Rejected ${answer.debug.rejected_count}`),
-        answer.debug.outside_date_count > 0 ? h("div", { className: "empty-state compact" }, `Found ${answer.debug.outside_date_count} likely match outside date range.`) : null
-      ) : null
-    )
-  );
-}
-
-function EvalResults({ result }) {
-  return h("div", { className: "eval-list" },
-    h("div", { className: "empty-state compact" }, `${result.pass_count} pass | ${result.fail_count} fail | ${result.unchecked_count} unchecked`),
-    result.results.map((item, index) => {
-      const status = item.passed === true ? "pass" : item.passed === false ? "fail" : "unchecked";
-      return h("article", { className: `eval-card ${status}`, key: `${item.question}-${index}` },
-        h("div", { className: "pill-row" },
-          h("span", { className: "pill" }, status),
-          item.top_score === null ? null : h("span", { className: "pill" }, `score ${item.top_score}`),
-          h("span", { className: "pill" }, `${item.accepted_count} accepted`)
-        ),
-        h("h4", null, item.question),
-        item.expected_contains ? h("p", null, `Expected: ${item.expected_contains}`) : null,
-        item.top_match ? h("div", { className: "source" }, h("small", null, displayDateTime(item.top_match.occurred_at)), h("div", null, item.top_match.text)) : h("div", { className: "empty-state compact" }, "No top match")
-      );
-    })
-  );
-}
-
-function HistoryView(props) {
-  const historyBusy = props.busyAction === "history";
-  return h("section", { className: `surface wide-surface ${historyBusy ? "working" : ""}` },
-    h("div", { className: "section-head" },
-      h("div", null, h("h3", null, "Timeline"), h("p", null, "View, edit, or delete saved memories.")),
-      h(BusyButton, {
-        className: "button ghost",
-        onClick: () => props.loadHistory(props.persona, props.subject.id),
-        busy: historyBusy,
-        label: "Refresh",
-        busyLabel: "Loading...",
-      })
-    ),
-    historyBusy ? h(LoadingState, { text: "Loading timeline..." }) : null,
-    props.history.length === 0 ? h("div", { className: "empty-state" }, "No saved memories loaded yet.") :
-      h("div", { className: "timeline-list" }, props.history.map((memory) => h(HistoryItem, { key: memory.id || `${memory.text}-${memory.occurred_at}`, memory, ...props })))
-  );
-}
-
-function HistoryItem({ memory, editingId, setEditingId, editDraft, setEditDraft, saveEdit, deleteMemory }) {
-  const editing = editingId === memory.id;
-  return h("article", { className: "timeline-item" },
-    h("div", { className: "pill-row" }, h("span", { className: "pill accent" }, memory.subject_name || memory.subject_id || memory.persona), h("span", { className: "pill" }, memory.type), h("span", { className: "pill" }, displayDateTime(memory.occurred_at))),
-    editing ? h(EditForm, { draft: editDraft, setDraft: setEditDraft, saveEdit, cancel: () => { setEditingId(null); setEditDraft(null); } }) :
-      h(React.Fragment, null, h("p", null, memory.text), h("div", { className: "actions" }, h("button", { className: "button secondary", onClick: () => { setEditingId(memory.id); setEditDraft({ ...memory }); } }, "Edit"), h("button", { className: "button danger", onClick: () => deleteMemory(memory.id) }, "Delete")))
-  );
-}
-
-function EditForm({ draft, setDraft, saveEdit, cancel }) {
-  if (!draft) return null;
-  return h("div", null,
-    h("textarea", { value: draft.text, onChange: (e) => setDraft({ ...draft, text: e.target.value }) }),
-    h("div", { className: "two-col" },
-      h("div", null, h("label", null, "Type"), h("select", { value: draft.type, onChange: (e) => setDraft({ ...draft, type: e.target.value }) }, memoryTypes.map((type) => h("option", { key: type, value: type }, type)))),
-      h("div", null, h("label", null, "Occurred at"), h("input", { type: "datetime-local", value: localDateTimeInputValue(draft.occurred_at), onChange: (e) => setDraft({ ...draft, occurred_at: toApiDateTime(e.target.value) }) }))
-    ),
-    h("div", { className: "actions" }, h("button", { className: "button", onClick: saveEdit }, "Save edit"), h("button", { className: "button secondary", onClick: cancel }, "Cancel"))
-  );
-}
-
-function SummaryView(props) {
-  const summaryBusy = props.busyAction === "summary";
-  return h("section", { className: `surface wide-surface ${summaryBusy ? "working" : ""}` },
-    h("div", { className: "section-head" }, h("div", null, h("h3", null, "Visit summary"), h("p", null, "Generate recorded facts for a doctor visit.")), h("span", { className: "pill warn" }, `${props.summary?.sources?.length || 0} sources`)),
-    h("div", { className: "two-col" },
-      h("div", null, h("label", null, "From date"), h("input", { type: "date", value: props.summaryFromDate, onChange: (e) => props.setSummaryFromDate(e.target.value) })),
-      h("div", null, h("label", null, "To date"), h("input", { type: "date", value: props.summaryToDate, onChange: (e) => props.setSummaryToDate(e.target.value) }))
-    ),
-    h("div", { className: "actions" },
-      h(BusyButton, {
-        className: "button",
-        onClick: props.generateSummary,
-        busy: summaryBusy,
-        label: "Generate summary",
-        busyLabel: "Generating...",
-      }),
-      h("button", { className: "button secondary", onClick: props.copySummary, disabled: !props.summary || summaryBusy }, "Copy")
-    ),
-    summaryBusy ? h(LoadingState, { text: "Preparing visit summary..." }) : null,
-    props.summary ? h("div", { className: "answer-block" }, h("p", null, props.summary.summary), h("div", { className: "source-list" }, props.summary.sources.map((source) => h("div", { className: "source", key: source.id || source.text }, h("small", null, displayDateTime(source.occurred_at)), h("div", null, source.text))))) : h("div", { className: "empty-state" }, "Choose a date range and generate a visit summary.")
-  );
-}
-
-function BusyButton({ className, onClick, busy, disabled, label, busyLabel }) {
-  return h("button", {
-    className: `${className || "button"} ${busy ? "is-busy" : ""}`,
-    onClick,
-    disabled: disabled || busy,
-  },
-    busy ? h("span", { className: "spinner", "aria-hidden": "true" }) : null,
-    busy ? busyLabel : label
-  );
-}
-
-function LoadingState({ text }) {
-  return h("div", { className: "loading-state" },
-    h("span", { className: "spinner", "aria-hidden": "true" }),
-    h("span", null, text)
-  );
-}
-
-function loadSubjects() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SUBJECTS_STORAGE_KEY) || "[]");
-    const validSaved = Array.isArray(saved)
-      ? saved.filter((item) => item?.id && item?.name && item?.persona)
-      : [];
-    const merged = [...defaultSubjects];
-    for (const item of validSaved) {
-      if (!merged.some((existing) => existing.id === item.id)) {
-        merged.push(item);
-      }
-    }
-    return merged;
-  } catch {
-    return defaultSubjects;
-  }
-}
+function saveProfile(p) { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
 
 function slugify(name) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "person";
+  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "parent";
 }
 
-function uniqueSubjectId(base, subjects) {
-  let id = base;
-  let suffix = 2;
-  while (subjects.some((item) => item.id === id)) {
-    id = `${base}-${suffix}`;
-    suffix += 1;
+function nowIso() { return new Date().toISOString().slice(0, 16); }
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+function fmtTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtDateTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) +
+    " at " + new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+function moodEmoji(mood) {
+  const m = (mood || "").toLowerCase();
+  if (m.includes("cheer") || m.includes("happy") || m.includes("good") || m.includes("well")) return "😊";
+  if (m.includes("tired") || m.includes("low") || m.includes("sad")) return "😔";
+  if (m.includes("pain") || m.includes("unwell") || m.includes("sick")) return "😟";
+  return "🙂";
+}
+function groupByDate(memories) {
+  const g = {};
+  for (const m of memories) {
+    const k = fmtDate(m.occurred_at);
+    if (!g[k]) g[k] = [];
+    g[k].push(m);
   }
-  return id;
+  return g;
+}
+function typeColor(t) {
+  return { symptom: "pill-red", medication: "pill-green", vital: "pill-yellow", visit: "pill-blue", document: "pill-gray", remark: "pill-gray" }[t] || "pill-gray";
 }
 
-createRoot(document.getElementById("root")).render(h(App));
+// ── Safety notice (always visible) ───────────────────────────────────────────
+
+function SafetyNotice() {
+  return h("p", { className: "safety-notice" },
+    "🛡️ Smriti remembers. It does not diagnose or replace a doctor."
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCREEN 1 — Welcome (just the parent's name)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function WelcomeScreen({ onStart }) {
+  const [name, setName] = useState("");
+
+  function go(e) {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n) return;
+    const profile = { id: slugify(n), name: n, createdAt: new Date().toISOString() };
+    saveProfile(profile);
+    onStart(profile);
+  }
+
+  return h("div", { className: "welcome-screen" },
+    h("div", { className: "welcome-card" },
+      h("div", { className: "brand-mark large" }, "स"),
+      h("h2", null, "Smriti Saathi"),
+      h("p", { className: "welcome-sub" }, "Family care memory for your parents"),
+      h("form", { onSubmit: go, className: "welcome-form" },
+        h("input", {
+          value: name,
+          onChange: e => setName(e.target.value),
+          placeholder: "Parent's name — Asha Devi, Papa, Mummy…",
+          autoFocus: true,
+          className: "big-input",
+        }),
+        h("button", { className: "button big-btn", type: "submit", disabled: !name.trim() },
+          "Get Started →"
+        )
+      ),
+      h(SafetyNotice)
+    )
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN APP — single page, tab-based
+// ─────────────────────────────────────────────────────────────────────────────
+
+function App() {
+  const [profile, setProfile] = useState(loadProfile);
+  const [tab, setTab] = useState("home");
+  const [lastCheckin, setLastCheckin] = useState(null);
+
+  if (!profile) {
+    return h(WelcomeScreen, { onStart: p => { setProfile(p); setTab("home"); } });
+  }
+
+  const tabs = [
+    ["home",      "🏠",  "Home"],
+    ["checkin",   "🎙️", "Check-In"],
+    ["upload",    "📄",  "Upload"],
+    ["ask",       "💬",  "Ask"],
+    ["family",    "👨‍👩‍👧", "Family"],
+  ];
+
+  return h("div", { className: "app" },
+    // Top bar
+    h("header", { className: "topbar" },
+      h("div", { className: "topbar-brand" },
+        h("span", { className: "brand-mark small" }, "स"),
+        h("span", { className: "topbar-name" }, profile.name)
+      ),
+      h("button", {
+        className: "topbar-settings",
+        onClick: () => setTab(tab === "settings" ? "home" : "settings"),
+        title: "Settings"
+      }, "⚙")
+    ),
+    // Content
+    h("main", { className: "main-content" },
+      tab === "home"     && h(HomeTab,              { profile, onCheckin: () => setTab("checkin"), onUpload: () => setTab("upload"), onAsk: () => setTab("ask"), lastCheckin }),
+      tab === "checkin"  && h(CheckinTab,           { profile, onDone: r => { setLastCheckin(r); setTab("home"); } }),
+      tab === "upload"   && h(UploadTab,            { profile }),
+      tab === "ask"      && h(AskTab,               { profile }),
+      tab === "family"   && h(CaregiverDashboard,   { profile }),
+      tab === "settings" && h(SettingsTab,          { profile, onSave: p => { setProfile(p); saveProfile(p); setTab("home"); }, onReset: () => { localStorage.removeItem(PROFILE_KEY); setProfile(null); } })
+    ),
+    // Bottom nav
+    h("nav", { className: "bottom-nav" },
+      tabs.map(([id, icon, label]) =>
+        h("button", { key: id, className: `nav-btn ${tab === id ? "active" : ""}`, onClick: () => setTab(id) },
+          h("span", { className: "nav-icon" }, icon),
+          h("span", { className: "nav-label" }, label)
+        )
+      )
+    )
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME TAB — dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HomeTab({ profile, onCheckin, onUpload, onAsk, lastCheckin }) {
+  const [patterns, setPatterns] = useState(null);
+  const [pBusy, setPBusy] = useState(false);
+  const [emergencyBusy, setEmergencyBusy] = useState(false);
+  const [emergencyMsg, setEmergencyMsg] = useState("");
+
+  useEffect(() => { fetchPatterns(); }, [profile.id]);
+
+  async function fetchPatterns() {
+    setPBusy(true);
+    try {
+      const d = await api.patterns({ subject_id: profile.id, days: 14 });
+      setPatterns(d);
+    } catch { setPatterns({ patterns: [] }); }
+    finally { setPBusy(false); }
+  }
+
+  async function triggerEmergency() {
+    if (!confirm("Send emergency alert to family?")) return;
+    setEmergencyBusy(true);
+    setEmergencyMsg("");
+    try {
+      await api.emergency(profile.id, profile.name, "Help needed — emergency alert");
+      setEmergencyMsg("✅ Alert sent to family!");
+    } catch { setEmergencyMsg("Could not send alert. Call 112."); }
+    finally { setEmergencyBusy(false); }
+  }
+
+  return h("div", { className: "tab-content" },
+    // Parent banner
+    h("div", { className: "parent-banner" },
+      h("div", { className: "parent-avatar" }, profile.name[0].toUpperCase()),
+      h("div", null,
+        h("div", { className: "parent-name" }, profile.name),
+        h("div", { className: "parent-sub" }, profile.relation || "Family member")
+      ),
+      h("button", { className: "button checkin-cta", onClick: onCheckin }, "🎙️ Check-In")
+    ),
+
+    // Latest check-in card
+    lastCheckin
+      ? h("div", { className: "card green-card" },
+          h("div", { className: "card-row" },
+            h("span", { className: "card-title" }, "Today's Check-In"),
+            h("span", { className: "mood-tag" }, `${moodEmoji(lastCheckin.summary.mood)} ${lastCheckin.summary.mood}`)
+          ),
+          h("p", { className: "card-body" }, lastCheckin.summary.summary_text),
+          lastCheckin.summary.direct_quote
+            ? h("div", { className: "quote-block" }, `"${lastCheckin.summary.direct_quote}"`)
+            : null,
+          lastCheckin.summary.flags && lastCheckin.summary.flags.length
+            ? h("div", { className: "flag-row" },
+                lastCheckin.summary.flags.map((f, i) => h("span", { key: i, className: "flag-pill" }, `⚠ ${f}`))
+              )
+            : null
+        )
+      : h("div", { className: "card empty-card", onClick: onCheckin },
+          h("p", null, "No check-in today yet"),
+          h("span", { className: "empty-cta" }, "Tap to start →")
+        ),
+
+    // Patterns
+    h("div", { className: "section-title" }, "Noticed recently"),
+    pBusy
+      ? h(Spinner)
+      : patterns && patterns.patterns && patterns.patterns.length
+        ? h("div", null,
+            patterns.patterns.map((p, i) =>
+              h("div", { key: i, className: "card warn-card" },
+                h("span", { className: "warn-tag" }, p.pattern_type),
+                h("p", { className: "card-body" }, p.summary),
+                p.evidence_quotes && p.evidence_quotes.length
+                  ? h("div", { className: "evidence" }, p.evidence_quotes.slice(0, 2).map((q, j) => h("div", { key: j, className: "evidence-item" }, q)))
+                  : null
+              )
+            )
+          )
+        : h("div", { className: "card empty-card" }, h("p", null, "Nothing repeated in the last 14 days")),
+
+    // Quick actions
+    h("div", { className: "quick-actions" },
+      h("button", { className: "action-btn", onClick: onUpload }, h("span", null, "📄"), "Upload prescription"),
+      h("button", { className: "action-btn", onClick: onAsk }, h("span", null, "💬"), "Ask about history")
+    ),
+
+    // Emergency button
+    emergencyMsg
+      ? h("div", { className: emergencyMsg.startsWith("✅") ? "success-msg" : "error-msg" }, emergencyMsg)
+      : null,
+    h(BusyBtn, {
+      onClick: triggerEmergency,
+      busy: emergencyBusy,
+      label: "🆘 MADAD CHAHIYE",
+      busyLabel: "Sending alert…",
+      className: "button emergency-btn",
+    }),
+
+    h(SafetyNotice)
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHECK-IN TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PROMPTS = [
+  "Aaj kaisa feel ho raha hai? (How are you feeling today?)",
+  "Koi takleef? (Any pain or discomfort?)",
+  "Dawai li? (Did you take your medicine?)",
+  "Kuch aur batana chahenge? (Anything else to tell the family?)",
+];
+
+const SAMPLES = [
+  "Aaj subah chakkar aaya. BP ki dawa le li. Chai paratha khaya.",
+  "Neend achhi hui. Subah walk ki. Dawa time pe li.",
+  "Pet mein dard hai kal se. Dawa nahi li thi. Aaj le li.",
+];
+
+function CheckinTab({ profile, onDone }) {
+  const [transcript, setTranscript] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!transcript.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const tz = (() => {
+        const off = new Date().getTimezoneOffset();
+        const s = off <= 0 ? "+" : "-";
+        const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, "0");
+        const m = String(Math.abs(off) % 60).padStart(2, "0");
+        return `${s}${h}:${m}`;
+      })();
+      const data = await api.checkin({
+        transcript,
+        subject_id: profile.id,
+        subject_name: profile.name,
+        current_datetime: `${nowIso()}:00${tz}`,
+      });
+      setResult(data);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  // Done screen
+  if (result) {
+    return h("div", { className: "tab-content center-content" },
+      h("div", { className: "done-circle" }, "✓"),
+      h("h3", { style: { marginTop: 12 } }, "Check-In Saved"),
+      h("div", { className: "card green-card", style: { marginTop: 16, textAlign: "left" } },
+        h("div", { className: "card-row" },
+          h("span", { className: "mood-tag" }, `${moodEmoji(result.summary.mood)} ${result.summary.mood}`)
+        ),
+        h("p", { className: "card-body" }, result.summary.summary_text),
+        result.summary.direct_quote ? h("div", { className: "quote-block" }, `"${result.summary.direct_quote}"`) : null,
+        result.summary.flags && result.summary.flags.length
+          ? h("div", { className: "flag-row" }, result.summary.flags.map((f, i) => h("span", { key: i, className: "flag-pill" }, `⚠ ${f}`)))
+          : null,
+        result.summary.medicines && result.summary.medicines.length
+          ? h("div", { className: "pill-row", style: { marginTop: 8 } },
+              h("span", { className: "sub-label" }, "Medicines: "),
+              result.summary.medicines.map((m, i) => h("span", { key: i, className: "pill pill-green" }, m))
+            )
+          : null
+      ),
+      h("button", { className: "button big-btn", onClick: () => onDone(result), style: { marginTop: 16 } }, "Back to Home"),
+      h("button", { className: "button secondary-btn", onClick: () => { setResult(null); setTranscript(""); }, style: { marginTop: 8 } }, "New Check-In")
+    );
+  }
+
+  return h("div", { className: "tab-content" },
+    h("div", { className: "section-title" }, "Aaj kaisa hai? 🙏"),
+    h("div", { className: "prompts" },
+      PROMPTS.map((p, i) => h("div", { key: i, className: "prompt" }, p))
+    ),
+    h("div", { className: "section-title", style: { marginTop: 20 } }, "Boliye ya type karein"),
+    h(VoiceButton, {
+      label: "🎙️ BOLIYE",
+      onTranscript: t => setTranscript(prev => prev ? prev + " " + t : t),
+    }),
+    h("textarea", {
+      value: transcript,
+      onChange: e => setTranscript(e.target.value),
+      placeholder: "Aaj subah chakkar aaya. BP ki dawa le li…",
+      className: "checkin-textarea",
+    }),
+    h("details", { className: "sample-details" },
+      h("summary", null, "Try a sample"),
+      h("div", { className: "samples" },
+        SAMPLES.map((s, i) => h("div", { key: i, className: "sample-item", onClick: () => setTranscript(s) }, s))
+      )
+    ),
+    error ? h("div", { className: "error-msg" }, error) : null,
+    h(BusyBtn, { onClick: submit, busy, disabled: !transcript.trim(), label: "SAHI HAI — Save Karein ✓", busyLabel: "Yaad kar raha hoon…", className: "button big-btn", style: { marginTop: 16 } })
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPLOAD TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+function UploadTab({ profile }) {
+  const fileRef = useRef();
+  const [cards, setCards] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [savebusy, setSaveBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true); setCards([]); setMsg(""); setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("persona", "care");
+      fd.append("subject_id", profile.id);
+      fd.append("subject_name", profile.name);
+      const d = await api.previewDocument(fd);
+      setCards(d.memories);
+      setSelected(d.memories.map(() => true));
+      setMsg(`Found ${d.memories.length} memory card${d.memories.length !== 1 ? "s" : ""}`);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  }
+
+  async function save() {
+    const toSave = cards.filter((_, i) => selected[i]);
+    if (!toSave.length) return;
+    setSaveBusy(true); setError("");
+    try {
+      const d = await api.saveMemories(toSave);
+      setMsg(`Saved ${d.ids.length} card${d.ids.length !== 1 ? "s" : ""}${d.skipped_duplicates ? ` (${d.skipped_duplicates} already saved)` : ""}`);
+      setCards([]); setSelected([]);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setSaveBusy(false); }
+  }
+
+  return h("div", { className: "tab-content" },
+    h("div", { className: "section-title" }, "Upload Prescription / Report"),
+    h("p", { className: "sub-text" }, "Photo or PDF of a prescription, lab report, or medicine label."),
+    h("div", {
+      className: "upload-zone",
+      onClick: () => !busy && fileRef.current?.click()
+    },
+      busy
+        ? h(Spinner)
+        : h("div", null,
+            h("div", { className: "upload-icon" }, "📄"),
+            h("p", null, "Tap to pick file"),
+            h("p", { className: "upload-hint" }, "PNG · JPG · PDF")
+          )
+    ),
+    h("input", { ref: fileRef, type: "file", accept: "application/pdf,image/*", className: "hidden-input", onChange: pick }),
+    msg ? h("div", { className: "success-msg" }, msg) : null,
+    error ? h("div", { className: "error-msg" }, error) : null,
+    cards.length ? h("div", null,
+      h("div", { className: "section-title", style: { marginTop: 16 } }, `${cards.length} Memory Cards`),
+      cards.map((c, i) =>
+        h("div", { key: i, className: `card ${selected[i] ? "" : "card-dimmed"}`, onClick: () => setSelected(p => { const n = [...p]; n[i] = !n[i]; return n; }), style: { cursor: "pointer" } },
+          h("div", { className: "card-row" },
+            h("input", { type: "checkbox", checked: selected[i], onChange: () => {}, style: { marginRight: 8 } }),
+            h("span", { className: `pill ${typeColor(c.type)}` }, c.type)
+          ),
+          h("p", { className: "card-body" }, c.text)
+        )
+      ),
+      h(BusyBtn, { onClick: save, busy: savebusy, disabled: !selected.some(Boolean), label: `Save ${selected.filter(Boolean).length} Card${selected.filter(Boolean).length !== 1 ? "s" : ""}`, busyLabel: "Saving…", className: "button big-btn", style: { marginTop: 12 } })
+    ) : null
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASK TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUGGESTED = [
+  "Has she mentioned dizziness before?",
+  "What medicine is she taking?",
+  "When was her last doctor visit?",
+  "Did she miss any medicine recently?",
+];
+
+function AskTab({ profile }) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [error, setError] = useState("");
+
+  async function ask(question) {
+    const query = question || q;
+    if (!query.trim()) return;
+    setBusy(true); setAnswer(null); setError("");
+    try {
+      const d = await api.ask({ question: query, persona: "care", subject_id: profile.id });
+      setAnswer(d);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  return h("div", { className: "tab-content" },
+    h("div", { className: "section-title" }, "Ask about " + profile.name),
+    h("div", { className: "suggestions" },
+      SUGGESTED.map(s =>
+        h("button", { key: s, className: "suggestion-btn", onClick: () => { setQ(s); ask(s); } }, s)
+      )
+    ),
+    h("div", { className: "ask-row" },
+      h("input", {
+        value: q,
+        onChange: e => setQ(e.target.value),
+        onKeyDown: e => e.key === "Enter" && ask(),
+        placeholder: "Ask anything about their health history…",
+        className: "ask-input",
+      }),
+      h(BusyBtn, { onClick: () => ask(), busy, disabled: !q.trim(), label: "Ask", busyLabel: "…", className: "button ask-btn" })
+    ),
+    error ? h("div", { className: "error-msg" }, error) : null,
+    busy ? h(Spinner) : null,
+    answer ? h("div", null,
+      h("div", { className: "card answer-card" },
+        h("p", { className: "answer-text" }, answer.answer)
+      ),
+      answer.sources && answer.sources.length
+        ? h("div", null,
+            h("div", { className: "section-title", style: { marginTop: 16 } }, "Sources"),
+            answer.sources.map((s, i) =>
+              h("div", { key: i, className: "source-item" },
+                h("span", { className: "source-date" }, fmtDate(s.occurred_at)),
+                h("p", { className: "source-text" }, s.text)
+              )
+            )
+          )
+        : null,
+      h("p", { className: "disclaimer" }, "Smriti recalls recorded facts only. Not a diagnosis.")
+    ) : null
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMELINE TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TimelineTab({ profile }) {
+  const [memories, setMemories] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { load(); }, [profile.id]);
+
+  async function load() {
+    setBusy(true); setError("");
+    try {
+      const d = await api.listMemories("care", profile.id, 100);
+      setMemories([...d].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)));
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function del(id) {
+    if (!confirm("Delete this memory?")) return;
+    await api.deleteMemory(id);
+    setMemories(p => p.filter(m => m.id !== id));
+  }
+
+  const grouped = groupByDate(memories);
+
+  return h("div", { className: "tab-content" },
+    h("div", { className: "section-row" },
+      h("div", { className: "section-title" }, "Memory Timeline"),
+      h("button", { className: "refresh-btn", onClick: load }, "↻ Refresh")
+    ),
+    error ? h("div", { className: "error-msg" }, error) : null,
+    busy ? h(Spinner) : null,
+    !busy && memories.length === 0 ? h("div", { className: "card empty-card" }, h("p", null, "No memories yet")) : null,
+    Object.entries(grouped).map(([date, items]) =>
+      h("div", { key: date },
+        h("div", { className: "date-group-label" }, date),
+        items.map(m =>
+          h("div", { key: m.id, className: "timeline-card" },
+            h("div", { className: "timeline-row" },
+              h("span", { className: `pill ${typeColor(m.type)}` }, m.type),
+              h("span", { className: "time-label" }, fmtTime(m.occurred_at)),
+              h("button", { className: "del-btn", onClick: () => del(m.id) }, "✕")
+            ),
+            h("p", { className: "timeline-text" }, m.text)
+          )
+        )
+      )
+    )
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SettingsTab({ profile, onSave, onReset }) {
+  const [name, setName] = useState(profile.name);
+  const [relation, setRelation] = useState(profile.relation || "");
+  const [medicines, setMedicines] = useState(profile.medicines || "");
+
+  function save(e) {
+    e.preventDefault();
+    onSave({ ...profile, name: name.trim() || profile.name, relation, medicines });
+  }
+
+  return h("div", { className: "tab-content" },
+    h("div", { className: "section-title" }, "Profile Settings"),
+    h("form", { onSubmit: save },
+      h("label", { className: "field-label" }, "Parent's name"),
+      h("input", { value: name, onChange: e => setName(e.target.value), placeholder: "Asha Devi" }),
+      h("label", { className: "field-label" }, "Relationship"),
+      h("input", { value: relation, onChange: e => setRelation(e.target.value), placeholder: "Mother, Father, Grandma…" }),
+      h("label", { className: "field-label" }, "Current medicines (optional)"),
+      h("textarea", { value: medicines, onChange: e => setMedicines(e.target.value), placeholder: "Amlodipine 5mg for BP…", style: { minHeight: 72 } }),
+      h("button", { className: "button big-btn", type: "submit", style: { marginTop: 16 } }, "Save"),
+    ),
+    h("div", { className: "section-title danger-title", style: { marginTop: 32 } }, "Demo"),
+    h(DemoLoader, { profile }),
+    h("div", { className: "section-title danger-title", style: { marginTop: 32 } }, "Reset"),
+    h("button", {
+      className: "button danger-btn",
+      onClick: () => { if (confirm("Reset app? This clears your local profile.")) onReset(); }
+    }, "Reset App")
+  );
+}
+
+function DemoLoader({ profile }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  async function load() {
+    setBusy(true); setMsg("");
+    try {
+      const d = await api.loadDemo();
+      setMsg(`✓ Loaded ${d.ids.length} demo memories (Asha Devi scenario). Go to Ask → "Has she mentioned dizziness before?"`);
+    } catch (e) { setMsg(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+  return h("div", null,
+    h("p", { className: "sub-text" }, "Loads the Asha Devi demo: dizziness, missed BP medicine, Dr. Mehta follow-up."),
+    h(BusyBtn, { onClick: load, busy, label: "Load Demo", busyLabel: "Loading…", className: "button secondary-btn" }),
+    msg ? h("p", { className: "success-msg", style: { marginTop: 8 } }, msg) : null
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAREGIVER DASHBOARD TAB — "Family" view
+// ─────────────────────────────────────────────────────────────────────────────
+
+const URGENCY_COLORS = { green: "#2d7a4f", blue: "#1a5c8c", yellow: "#92610a", orange: "#c25a00", red: "#c0392b" };
+const URGENCY_BG    = { green: "#e8f5ed", blue: "#e6f0fa", yellow: "#fef5e0", orange: "#fff0e0", red: "#fdecea" };
+const FLAG_ICONS    = { dizziness: "💫", missed_medicine: "💊", pain: "🩹", fall: "⚠️", poor_sleep: "😴", bp_elevated: "🩸" };
+
+function CaregiverDashboard({ profile }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [askQ, setAskQ] = useState("");
+  const [askBusy, setAskBusy] = useState(false);
+  const [askAnswer, setAskAnswer] = useState(null);
+
+  useEffect(() => { load(); }, [profile.id]);
+
+  async function load() {
+    setBusy(true); setError("");
+    try {
+      const d = await api.dashboard(profile.id);
+      setData(d);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function askQuestion(q) {
+    const query = q || askQ;
+    if (!query.trim()) return;
+    setAskBusy(true); setAskAnswer(null);
+    try {
+      const d = await api.ask({ question: query, persona: "care", subject_id: profile.id });
+      setAskAnswer(d);
+    } catch (e) { setAskAnswer({ answer: friendlyError(e), sources: [] }); }
+    finally { setAskBusy(false); }
+  }
+
+  const urgency = data?.urgency || { score: 1, level: "green", reasons: [] };
+  const uColor = URGENCY_COLORS[urgency.level] || URGENCY_COLORS.green;
+  const uBg    = URGENCY_BG[urgency.level]    || URGENCY_BG.green;
+
+  return h("div", { className: "tab-content" },
+    // Header card
+    h("div", { className: "caregiver-header", style: { background: uBg, borderColor: uColor } },
+      h("div", { className: "caregiver-header-row" },
+        h("div", null,
+          h("div", { className: "caregiver-name" }, profile.name),
+          h("div", { className: "caregiver-sub" }, profile.relation || "Family member"),
+        ),
+        h("div", { className: "urgency-badge", style: { background: uColor } },
+          urgency.level === "green" ? "✓ All OK" :
+          urgency.level === "blue"  ? "ℹ Note" :
+          urgency.level === "yellow"? "⚠ Attention" :
+          urgency.level === "orange"? "⚠ Follow Up" : "🆘 Urgent"
+        )
+      ),
+      data?.last_checkin_at
+        ? h("div", { className: "caregiver-meta" }, `Last check-in: ${fmtDateTime(data.last_checkin_at)} · ${data.memory_count || 0} memories`)
+        : h("div", { className: "caregiver-meta" }, "No check-ins recorded yet"),
+      urgency.reasons && urgency.reasons.length
+        ? h("div", { className: "caregiver-reasons" }, urgency.reasons.join(" · "))
+        : null
+    ),
+
+    // Refresh button
+    h("button", { className: "refresh-btn", onClick: load, style: { alignSelf: "flex-end" } }, "↻ Refresh"),
+
+    error ? h("div", { className: "error-msg" }, error) : null,
+    busy ? h(Spinner) : null,
+
+    // Care flags
+    data?.flags && data.flags.length
+      ? h("div", null,
+          h("div", { className: "section-title" }, "⚠ Care Flags"),
+          h("div", { className: "flag-grid" },
+            data.flags.map((f, i) =>
+              h("div", { key: i, className: "flag-card", style: { borderColor: uColor, background: uBg } },
+                h("div", { className: "flag-icon" }, FLAG_ICONS[f.flag] || "⚠"),
+                h("div", { className: "flag-label" }, f.label),
+                h("div", { className: "flag-memory" }, `"${f.from_memory}"`),
+                h("div", { className: "flag-date" }, fmtDate(f.date))
+              )
+            )
+          )
+        )
+      : !busy && data
+        ? h("div", { className: "card green-card" }, h("p", { style: { color: "#2d7a4f", fontWeight: 700 } }, "✓ No flags in recent check-ins"))
+        : null,
+
+    // Recent memories
+    data?.recent_memories && data.recent_memories.length
+      ? h("div", null,
+          h("div", { className: "section-title" }, "Recent Memories"),
+          data.recent_memories.map((m, i) =>
+            h("div", { key: i, className: "timeline-card" },
+              h("div", { className: "timeline-row" },
+                h("span", { className: `pill ${typeColor(m.type)}` }, m.type),
+                h("span", { className: "time-label" }, fmtDateTime(m.occurred_at))
+              ),
+              h("p", { className: "timeline-text" }, m.text)
+            )
+          )
+        )
+      : null,
+
+    // Quick ask
+    h("div", { className: "section-title" }, "Ask about " + profile.name),
+    h("div", { className: "suggestion-row" },
+      ["Has she mentioned dizziness?", "What medicine is she taking?", "How has her BP been?"].map(s =>
+        h("button", { key: s, className: "suggestion-btn", onClick: () => { setAskQ(s); askQuestion(s); } }, s)
+      )
+    ),
+    h("div", { className: "ask-row" },
+      h("input", {
+        value: askQ,
+        onChange: e => setAskQ(e.target.value),
+        onKeyDown: e => e.key === "Enter" && askQuestion(),
+        placeholder: "Ask anything about their health history…",
+        className: "ask-input",
+      }),
+      h(BusyBtn, { onClick: () => askQuestion(), busy: askBusy, disabled: !askQ.trim(), label: "Ask", busyLabel: "…", className: "button ask-btn" })
+    ),
+    askBusy ? h(Spinner) : null,
+    askAnswer
+      ? h("div", null,
+          h("div", { className: "card answer-card" }, h("p", { className: "answer-text" }, askAnswer.answer)),
+          askAnswer.sources && askAnswer.sources.length
+            ? h("div", null,
+                h("div", { className: "section-title", style: { marginTop: 12 } }, "Sources"),
+                askAnswer.sources.map((s, i) =>
+                  h("div", { key: i, className: "source-item" },
+                    h("span", { className: "source-date" }, fmtDate(s.occurred_at)),
+                    h("p", { className: "source-text" }, s.text)
+                  )
+                )
+              )
+            : null,
+          h("p", { className: "disclaimer" }, "Smriti recalls recorded facts only. Not a diagnosis.")
+        )
+      : null,
+
+    h(SafetyNotice)
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared tiny components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BusyBtn({ onClick, busy, disabled, label, busyLabel, className, style }) {
+  return h("button", { className: `${className}${busy ? " busy" : ""}`, onClick, disabled: busy || disabled, style },
+    busy ? h("span", { className: "spinner" }) : null,
+    busy ? (busyLabel || label) : label
+  );
+}
+
+function Spinner() {
+  return h("div", { className: "spinner-wrap" }, h("span", { className: "spinner" }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mount
+// ─────────────────────────────────────────────────────────────────────────────
+
+const root = createRoot(document.getElementById("root"));
+root.render(h(App));

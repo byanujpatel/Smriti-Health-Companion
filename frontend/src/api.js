@@ -36,6 +36,16 @@ export const api = {
   evalRetrieval: (body) => request("/retrieval/evaluate", jsonPost(body)),
   loadDemo: () => request("/demo/load", { method: "POST" }),
   transcribe: (formData) => request("/voice/transcribe", { method: "POST", body: formData }),
+  checkin: (body) => request("/checkin", jsonPost(body)),
+  patterns: (body) => request("/patterns", jsonPost(body)),
+  dashboard: (subjectId) => request(`/api/dashboard/${encodeURIComponent(subjectId)}`),
+  emergency: (subjectId, subjectName, message = "Emergency alert triggered") => {
+    const fd = new FormData();
+    fd.append("subject_id", subjectId);
+    fd.append("subject_name", subjectName);
+    fd.append("message", message);
+    return request("/api/emergency", { method: "POST", body: fd });
+  },
 };
 
 function jsonPost(body) {

@@ -271,6 +271,52 @@ class TranscriptionResponse(BaseModel):
     text: str
 
 
+class CheckInRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=10_000)
+    subject_id: str
+    subject_name: str
+    current_datetime: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+
+    @model_validator(mode="after")
+    def require_timezone(self):
+        if self.current_datetime.tzinfo is None:
+            raise ValueError("current_datetime must include a timezone offset")
+        return self
+
+
+class CheckInSummary(BaseModel):
+    mood: str
+    health_mentions: list[str] = Field(default_factory=list)
+    medicines: list[str] = Field(default_factory=list)
+    direct_quote: str = ""
+    flags: list[str] = Field(default_factory=list)
+    summary_text: str
+
+
+class CheckInResponse(BaseModel):
+    summary: CheckInSummary
+    memories: list[MemoryEntry]
+    saved_ids: list[str]
+
+
+class PatternRequest(BaseModel):
+    subject_id: str
+    days: int = Field(default=14, ge=3, le=90)
+
+
+class PatternEntry(BaseModel):
+    pattern_type: str
+    evidence_dates: list[str]
+    evidence_quotes: list[str]
+    summary: str
+
+
+class PatternsResponse(BaseModel):
+    patterns: list[PatternEntry]
+    date_range: str
+    disclaimer: str = "Smriti remembers and organizes. It does not diagnose, prescribe, or replace a doctor."
+
+
 class StatusResponse(BaseModel):
     api: str
     supermemory: str

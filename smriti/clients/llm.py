@@ -6,7 +6,7 @@ from groq import Groq
 from pydantic import ValidationError
 
 from smriti.config import Settings
-from smriti.models import MemoryEntry, Persona
+from smriti.models import CheckInSummary, MemoryEntry, PatternEntry, Persona
 
 
 SAFETY_RULES = """You are a health memory tool, not a medical adviser.
@@ -261,6 +261,118 @@ class GroqVisionExtractor(_GroqClient):
         return (completion.choices[0].message.content or "").strip()
 
 
+class GroqCheckInStructurer(_GroqClient):
+    def structure_checkin(
+        self, transcript: str, subject_name: str, now: datetime
+    ) -> tuple[CheckInSummary, list[MemoryEntry]]:
+        system = f"""{SAFETY_RULES}
+You are analyzing a voice check-in from an ageing parent to their family.
+Extract a structured JSON with:
+- "mood": overall mood (e.g. "cheerful", "tired", "neutral", "low")
+- "health_mentions": list of health observations mentioned (plain English)
+- "medicines": list of medicines taken, missed, or mentioned
+- "direct_quote": one direct memorable quote from the transcript
+- "flags": list of care flags needing family attention (use "family attention suggested" language, never diagnosis)
+- "summary_text": 2-3 sentence plain English summary of the check-in
+- "memories": array of structured memory objects (text, type, persona="care", occurred_at, entities, raw)
+  Split multiple facts. Types: symptom, medication, vital, visit, remark.
+Return JSON with exactly these top-level keys."""
+        request = json.dumps({
+            "transcript": transcript,
+            "subject_name": subject_name,
+            "current_datetime": now.isoformat(),
+        })
+        try:
+            payload = self._json_completion(system, request)
+            summary = CheckInSummary(
+                mood=payload.get("mood", "neutral"),
+                health_mentions=payload.get("health_mentions", []),
+                medicines=payload.get("medicines", []),
+                direct_quote=payload.get("direct_quote", ""),
+                flags=payload.get("flags", []),
+                summary_text=payload.get("summary_text", transcript[:200]),
+            )
+            raw_memories = payload.get("memories", [])
+            memories = []
+            for item in raw_memories:
+                try:
+                    item = {**item, "persona": "care"}
+                    memories.append(MemoryEntry.model_validate(item))
+                except (ValidationError, TypeError, ValueError):
+                    pass
+            if not memories:
+                memories = [MemoryEntry(
+                    text=transcript[:500],
+                    type="remark",
+                    persona=Persona.CARE,
+                    occurred_at=now,
+                    entities={},
+                    raw=transcript[:500],
+                )]
+            return summary, memories
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
+            summary = CheckInSummary(
+                mood="neutral",
+                health_mentions=[],
+                medicines=[],
+                direct_quote="",
+                flags=[],
+                summary_text=transcript[:200],
+            )
+            memories = [MemoryEntry(
+                text=transcript[:500],
+                type="remark",
+                persona=Persona.CARE,
+                occurred_at=now,
+                entities={},
+                raw=transcript[:500],
+            )]
+            return summary, memories
+
+
+class GroqPatternDetector(_GroqClient):
+    def detect_patterns(
+        self, memories: list[MemoryEntry], date_range: str
+    ) -> list[PatternEntry]:
+        if not memories:
+            return []
+        system = f"""{SAFETY_RULES}
+Analyze health memories to find repeated patterns. Look for:
+- Same symptom mentioned 2+ times
+- Missed medicine repeated
+- Mood shift from usual baseline
+- Eating, sleeping, or activity changes
+- Medicine mentioned near symptom mention
+Return JSON with a "patterns" array. Each pattern has:
+- "pattern_type": short label (e.g. "repeated symptom", "missed medicine", "mood shift")
+- "evidence_dates": list of ISO date strings
+- "evidence_quotes": list of relevant memory text excerpts
+- "summary": 1-2 sentence plain English observation using "We noticed..." language
+Never use diagnosis language. Never say "medical risk" or "detected disease".
+Use "family attention suggested" if relevant."""
+        request = json.dumps({
+            "date_range": date_range,
+            "memories": [
+                {"text": m.text, "type": m.type, "occurred_at": m.occurred_at.isoformat()}
+                for m in memories
+            ],
+        })
+        try:
+            payload = self._json_completion(system, request)
+            raw = payload.get("patterns", [])
+            result = []
+            for item in raw:
+                result.append(PatternEntry(
+                    pattern_type=item.get("pattern_type", "observation"),
+                    evidence_dates=item.get("evidence_dates", []),
+                    evidence_quotes=item.get("evidence_quotes", []),
+                    summary=item.get("summary", ""),
+                ))
+            return result
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+
+
 def create_structurer(settings: Settings):
     return GroqStructurer(settings)
 
@@ -279,3 +391,11 @@ def create_transcriber(settings: Settings):
 
 def create_vision_extractor(settings: Settings):
     return GroqVisionExtractor(settings)
+
+
+def create_checkin_structurer(settings: Settings):
+    return GroqCheckInStructurer(settings)
+
+
+def create_pattern_detector(settings: Settings):
+    return GroqPatternDetector(settings)
