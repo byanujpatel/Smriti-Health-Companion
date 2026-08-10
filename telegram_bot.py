@@ -57,16 +57,15 @@ def _set_user(chat_id: int, name: str) -> dict:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     user = _get_user(chat_id)
+    context.user_data["awaiting_name"] = True
     if user:
         await update.message.reply_text(
             f"Namaste {user['name']} ji! 🙏\n\n"
-            "Main Smriti hoon — aapka health saathi.\n\n"
-            "Bas boliye ya type kijiye — main yaad rakhungi! 💚\n\n"
-            "/ask — kuch puchna ho\n"
-            "/help — sab commands dekhein"
+            "Naam badalna ho toh abhi type karein.\n"
+            "Ya wahi rehne dein — bas naam dobara type karein:",
+            parse_mode="Markdown",
         )
     else:
-        context.user_data["awaiting_name"] = True
         await update.message.reply_text(
             "Namaste! Main Smriti hoon 🙏\n\n"
             "Aapka health saathi. Jo bhi bataiyega — main yaad rakhungi.\n\n"
