@@ -1,115 +1,109 @@
 # Smriti — Dadi Ka Health Saathi
 
-> *"Mummy ko chakkar aa raha tha aaj — yaad rakhna"*
-> "Mummy had dizziness today — remember this."
+> *"Mummy ko chakkar aa raha tha aaj — yaad rakhna."*
+> One voice note. Three lives connected.
 
-Smriti is a family health memory app built for ageing parents in India and the children who care for them from a distance.
+Smriti is a **voice-first health memory app** for ageing parents in India and the adult children who care for them from afar. Dadi speaks in Hindi. AI structures it. Beti in Mumbai sees it instantly. The doctor gets a clean summary.
 
-**Dadi** speaks a quick note in Hindi — on WhatsApp/Telegram or the web app. **Beti in Mumbai** checks the family dashboard and asks *"Has she mentioned dizziness before?"* — Smriti answers with exact dates and quotes.
-
-- 🔗 **Live app:** `PASTE_RENDER_URL_HERE`
-- 📹 **Build screencast:** `PASTE_LOOM_URL_HERE`
-- 💬 **Telegram bot:** `PASTE_BOT_USERNAME_HERE`
+**Live app:** https://smriti-health-companion.onrender.com
+**Telegram bot:** [@SmritiHealthBot](https://web.telegram.org/k/#@SmritiHealthBot)
+**Build screencast:** https://www.loom.com/share/f6fe1c9af4114ef2beac02f61ad1bc37
 
 ---
 
-## The problem it solves
+## The Problem
 
-India has 140 million people over 60. Most of them live apart from their adult children. Every family has some version of this:
+India has 140 million people over 60. Most live apart from their adult children. Every family knows this pattern:
 
-- Papa had a fall last month — no one remembered until the next visit
-- Dadi's BP has been high for three weeks — no one connected the dots
-- "Did the doctor say anything about her knee?" — no one wrote it down
+- Papa had a fall — nobody remembered until the next visit three months later
+- Dadi's BP has been high for weeks — nobody connected the dots
+- "What did the doctor say about her knee?" — nobody wrote it down
 
-Smriti is a memory for health moments — saved automatically when you speak, recalled instantly when you ask.
-
----
-
-## Who it's for
-
-**Elder (Dadi / Papa)** — speaks or types a health note in Hindi or English. No login, no forms. Just say what happened.
-
-**Caregiver (Beti / Beta)** — opens the family dashboard from any city. Sees recent flags, urgency level, and a full timeline of remembered moments. Asks questions in plain language.
+Smriti is a persistent memory for health moments — captured automatically when you speak, recalled instantly when you ask.
 
 ---
 
-## Key features
+## Who It's For
 
-| Feature | What it does |
+| Role | What they do |
 |---|---|
-| 🎙️ Voice check-in | Speak in Hindi/English → Groq Whisper transcribes → structured memory saved |
-| 📋 Prescription scan | Upload a prescription photo or PDF → AI extracts medicine names and doses |
-| 💬 Ask anything | "Has she mentioned dizziness?" → answers from saved memories with dates and quotes |
-| 👨‍👩‍👧 Family dashboard | Caregiver view: urgency level, flags, recent timeline, pattern summary |
-| 🤖 Telegram bot | `/start`, voice note, text note, `/ask` — works on any phone |
-| 🆘 Emergency alert | One-tap emergency → logged memory + email alert to family |
-| 📅 Weekly patterns | "Noticed changes this week?" — AI summarises recurring symptoms |
-| 🔒 Per-person memory | Separate memories per person — Mummy and Papa never mix |
+| **Elder (Dadi / Papa)** | Speaks or types a health note in Hindi or English. No login required. |
+| **Caregiver (Beti / Beta)** | Opens the family dashboard from any city. Sees flags, urgency level, and the full timeline. |
+| **Doctor** | Receives a structured chronological summary before the appointment. |
 
 ---
 
-## How the AI pipeline works
+## Key Features
 
-```
-Elder speaks (voice or text)
-       │
-       ▼
-Groq Whisper (STT)        ← whisper-large-v3-turbo
-       │
-       ▼
-Groq Llama (structure)    ← llama-3.3-70b-versatile
-  turns free text into:
-    type / date / entities / tags
-       │
-       ▼
-Preview card shown         ← caregiver/elder confirms before saving
-       │
-       ▼
-Supermemory Cloud          ← semantic + hybrid search index
-       │
-       ▼
-Ask a question
-       │
-       ▼
-Supermemory search  →  Groq Llama answer  →  reply with sources + dates
-```
+| Feature | Description |
+|---|---|
+| Voice check-in | Speak in Hindi or English — Groq Whisper transcribes, Llama structures, memory saved |
+| Prescription scan | Upload a photo or PDF — AI extracts medicine names, doses, and frequencies |
+| Ask anything | Natural language questions answered from saved memories with exact dates and quotes |
+| Family dashboard | Caregiver view: urgency level, active flags, recent timeline, weekly pattern summary |
+| Telegram bot | `/start`, voice note, text note, `/ask` — works on any phone, no app download |
+| Emergency alert | One tap logs an emergency memory and fires an email to the caregiver |
+| Recurring patterns | AI detects repeated symptoms or missed medicines across the last 14 days |
+| Per-person isolation | Each person's memories are fully separate — Mummy and Papa never mix |
 
 ---
 
-## Try it in 60 seconds
+## AI Pipeline
 
-1. Open the live URL above.
-2. Skip login — type a name like `Asha Devi` or `Papa` and tap **Shuru karein**.
-3. On the home screen tap **BOLIYE** and say *"Aaj BP 150 tha, thoda chakkar aaya"*.
-4. Review the preview card → tap **SAHI HAI — Save Karein**.
-5. Switch to the **Ask** tab → ask *"Has she mentioned dizziness?"*
-6. Tap **👨‍👩‍👧 Family** in the bottom nav → see the caregiver dashboard.
+```mermaid
+flowchart TD
+    A([Elder speaks or types]) --> B[Groq Whisper\nwhisper-large-v3-turbo\nHindi STT]
+    B --> C[Groq Llama 3.3 70B\nStructures into typed memory entries\ntype · date · entities · tags]
+    C --> D{Preview card\nshown to user}
+    D -- Confirmed --> E[(Supermemory Cloud\nSemantic + hybrid search index)]
+    D -- Rejected --> A
 
-Or load the built-in demo:
+    F([Caregiver asks a question]) --> G[Supermemory semantic search\nRetrieves relevant memories]
+    G --> H[Groq Llama 3.3 70B\nSynthesises answer with dates + quotes]
+    H --> I([Answer returned to caregiver])
+
+    J([Prescription photo / PDF]) --> K[Groq Vision\nllama-4-scout-17b\nExtracts medicines and doses]
+    K --> D
+```
+
+**Safety guardrail:** every Llama prompt includes a strict system rule — *"You are not a medical adviser. Never diagnose, recommend doses, or make urgency judgments."*
+
+---
+
+## Try It in 60 Seconds
+
+1. Open the [live app](https://smriti-health-companion.onrender.com)
+2. Type a name — `Asha Devi` or `Papa` — and tap **Get Started**
+3. Tap **BOLIYE** and say *"Aaj BP 150 tha, thoda chakkar aaya"*
+4. Review the preview card → tap **SAHI HAI — Save Karein**
+5. Go to the **Ask** tab → type *"Has she mentioned dizziness?"*
+6. Tap **Family** in the bottom nav → see the caregiver dashboard
+
+**Or load the built-in demo** (9 pre-seeded memories for Asha Devi, 68, Varanasi):
 
 ```bash
-curl -X POST https://YOUR-RENDER-URL/demo/load
+curl -X POST https://smriti-health-companion.onrender.com/demo/load
 ```
 
-This loads 9 memories for **Asha Devi** (68, Varanasi, BP patient). Use subject ID `asha-devi` in all requests.
+---
+
+## Telegram Bot
+
+```
+1. Open @SmritiHealthBot on Telegram
+2. Send /start → type your parent's name
+3. Send a voice note in Hindi
+4. Smriti replies with a structured preview → tap ✅ Haan to save
+5. Send /ask kaunsi dawai chal rahi hai?
+```
+
+To switch to a different parent's profile, send `/start` again and type the new name.
 
 ---
 
-## Telegram bot
-
-1. Search for `@SmritiDadiBot` on Telegram.
-2. Send `/start` → enter your parent's name.
-3. Send a voice note in Hindi.
-4. Smriti replies with a structured preview → tap ✅ to save.
-5. Send `/ask Has she had dizziness before?`
-
----
-
-## Local setup
+## Local Setup
 
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
-
-### 1. Clone and install
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/smriti
@@ -117,132 +111,95 @@ cd smriti
 uv sync
 ```
 
-### 2. Create `.env`
+Copy `.env.example` to `.env` and fill in your keys:
 
 ```env
-# Memory
 SMRITI_MEMORY_MODE=cloud
 SUPERMEMORY_API_KEY=your-supermemory-key
 
-# AI
 GROQ_API_KEY=your-groq-key
 GROQ_MODEL=llama-3.3-70b-versatile
 GROQ_STT_MODEL=whisper-large-v3-turbo
 GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 
-# Optional: Telegram bot
+# Optional — Telegram bot
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 WEBHOOK_URL=https://your-app.onrender.com
 
-# Optional: Emergency email via Gmail
+# Optional — Emergency email via Gmail
 ALERT_EMAIL=family@example.com
 SMTP_USER=sender@gmail.com
-SMTP_PASS=your-app-password
+SMTP_PASS=your-gmail-app-password
 ```
 
-For **local-only testing** (no cloud):
-
-```env
-SMRITI_MEMORY_MODE=local
-SUPERMEMORY_BASE_URL=http://localhost:6767
-SUPERMEMORY_API_KEY=any-local-key
-```
-
-Start Supermemory Local first: `supermemory-server`
-
-### 3. Start the app
+> **Local-only mode** (no cloud keys needed): set `SMRITI_MEMORY_MODE=local` and run `supermemory-server` first.
 
 ```bash
-UV_CACHE_DIR=/private/tmp/uv-cache uv run uvicorn main:app --reload --port 8000
+uv run uvicorn main:app --reload --port 8000
+# Open http://127.0.0.1:8000
 ```
 
-Open: [http://127.0.0.1:8000](http://127.0.0.1:8000)
-
----
-
-## Deploy to Render
-
-1. Push this repo to GitHub (public).
-2. Create a new **Web Service** in Render → connect the repo.
-3. Render auto-detects `render.yaml` — no extra config needed.
-4. Set all environment variables in Render dashboard (see `.env` above).
-5. Deploy → copy the live URL → update `WEBHOOK_URL` in env vars.
-6. (Optional) Set Telegram webhook: `curl -F "url=https://YOUR-URL/telegram" https://api.telegram.org/botTOKEN/setWebhook`
-
----
-
-## API reference (quick)
-
-| Method | Path | What it does |
-|---|---|---|
-| `GET` | `/` | Web app |
-| `GET` | `/health` | `{"status":"ok"}` |
-| `POST` | `/ingest/preview` | Text → structured memory preview |
-| `POST` | `/memories` | Save confirmed memories |
-| `POST` | `/ask` | Ask a question, get answer + sources |
-| `POST` | `/checkin` | Voice check-in → summary + auto-save |
-| `POST` | `/summary` | Weekly/monthly visit summary |
-| `POST` | `/patterns` | Recurring symptom patterns |
-| `POST` | `/documents/preview` | PDF/photo prescription → memory cards |
-| `POST` | `/voice/transcribe` | Audio file → transcribed text |
-| `GET` | `/api/dashboard/{id}` | Caregiver dashboard data |
-| `POST` | `/api/emergency` | Log emergency + send alert email |
-| `POST` | `/telegram` | Telegram webhook (auto-set on startup) |
-| `POST` | `/demo/load` | Load Asha Devi demo data |
-
-Full interactive docs: `/docs`
-
----
-
-## Run tests
+Run tests:
 
 ```bash
-UV_CACHE_DIR=/private/tmp/uv-cache uv run pytest -q
+uv run pytest -q
 ```
 
 ---
 
-## Code layout
+## Code Layout
 
 ```
-main.py                     FastAPI routes, dashboard helpers, emergency email
-telegram_bot.py             Telegram bot: /start, voice, text, /ask
+main.py                       FastAPI routes, dashboard, emergency email
+telegram_bot.py               Telegram bot handlers
 smriti/
-  config.py                 Settings (pydantic-settings, all env vars)
-  models.py                 API schemas and memory models
-  clients/llm.py            Groq: Whisper STT, Llama structurer, answerer, summarizer
-  clients/memory.py         Supermemory cloud/local client
+  config.py                   Settings via pydantic-settings
+  models.py                   API schemas and memory models
+  clients/
+    llm.py                    Groq: Whisper STT, Llama structurer, answerer, summariser, vision
+    memory.py                 Supermemory cloud/local client
   services/
-    demo_data.py            Asha Devi demo memories + eval questions
-    retrieval_service.py    Semantic search with scoring guardrails
-    memory_quality.py       Duplicate detection before save
-    document_ingestion.py   PDF/photo → text extraction
+    retrieval_service.py      Semantic search with scoring guardrails
+    memory_quality.py         Duplicate detection before save
+    document_ingestion.py     PDF/photo → text extraction
+    demo_data.py              Asha Devi demo dataset
 frontend/
-  index.html                Browser entry point
-  src/app.js                React UI (vanilla, no build step)
-  src/voice.js              Microphone recording
-  src/styles.css            Mobile-first styling
-  src/api.js                API client functions
-docs/hackathon/             Build plan, changes log, testing guide
+  index.html                  Browser entry point
+  src/app.js                  React UI (vanilla CDN, no build step)
+  src/voice.js                Microphone recording
+  src/styles.css              Mobile-first styling
+  src/api.js                  API client
 ```
 
 ---
 
-## Safety
+## Core API Endpoints
 
-Smriti recalls facts you have recorded. It does not diagnose conditions, recommend medication doses, interpret lab values, or make medical urgency decisions. Always consult a doctor for medical advice. The safety notice is displayed on every screen.
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/checkin` | Voice/text check-in → structured summary + memories |
+| `POST` | `/ingest/preview` | Text → memory preview (confirm before save) |
+| `POST` | `/documents/preview` | PDF or photo → memory cards |
+| `POST` | `/memories` | Save confirmed memories |
+| `POST` | `/ask` | Natural language question → answer with sources |
+| `GET` | `/api/dashboard/{id}` | Caregiver dashboard data |
+| `POST` | `/api/emergency` | Log emergency + send email alert |
+| `POST` | `/demo/load` | Seed Asha Devi demo data |
+
+Interactive docs available at `/docs`.
 
 ---
 
-## Built with
+## Safety Notice
 
-- [FastAPI](https://fastapi.tiangolo.com) — backend
-- [Groq](https://groq.com) — Whisper STT + Llama 3.3 70B
-- [Supermemory](https://supermemory.ai) — semantic memory layer
-- [python-telegram-bot](https://python-telegram-bot.org) — Telegram integration
-- React (vanilla, no bundler) — frontend
-- [Render](https://render.com) — deployment
+Smriti recalls facts you have recorded. It does not diagnose conditions, recommend medication doses, interpret lab values, or make medical urgency decisions. A safety notice is permanently displayed on every screen. Always consult a qualified doctor for medical advice.
 
 ---
 
-*Built for the [BestPossible.AI Hackathon](https://bestpossible.ai/hackathon) — Aug 2026*
+## Built With
+
+[FastAPI](https://fastapi.tiangolo.com) · [Groq](https://groq.com) (Whisper + Llama 3.3 70B) · [Supermemory](https://supermemory.ai) · [python-telegram-bot](https://python-telegram-bot.org) · React (vanilla, no bundler) · [Render](https://render.com)
+
+---
+
+*August 2026 · Made with ❤️ by Anuj Patel*
